@@ -435,19 +435,41 @@ body::before {
   width: 88%;
   height: 88%;
   object-fit: contain;
-  filter: drop-shadow(0 17px 18px #000b);
   image-rendering: pixelated;
-  transform-origin: 50% 85%;
-  animation: sprite-breathe 1.2s steps(2,end) infinite;
 }
+.articulated-rig {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 17px 18px #000b);
+  transform-origin: 50% 85%;
+  will-change: transform,opacity;
+}
+.rig-joint-base,.rig-joint-torso,.rig-joint-head {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.rig-joint-base { transform-origin: 50% 100%; }
+.rig-joint-torso { transform-origin: 50% 68%; }
+.rig-joint-head { transform-origin: 50% 38%; }
+.articulated-rig .sprite-image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88%;
+  height: 88%;
+  transform: translate(-50%,-50%);
+  animation: none;
+  pointer-events: none;
+}
+.rig-joint-base > .rig-layer-base { clip-path: inset(64% -20% 0% -20%); }
+.rig-joint-torso > .sprite-image { clip-path: inset(32% -20% 30% -20%); }
+.rig-joint-head > .sprite-image { clip-path: inset(-10% -20% 62% -20%); }
 .sprite-image[hidden] { display: none !important; }
-@keyframes sprite-breathe { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(.985); } }
-.sprite-stage.pbfx-anim-windup .sprite-image,
-.sprite-stage.pbfx-anim-lunge .sprite-image,
-.sprite-stage.pbfx-anim-recoil .sprite-image,
-.sprite-stage.pbfx-anim-hit .sprite-image,
-.sprite-stage.pbfx-anim-ko .sprite-image,
-.sprite-stage.pbfx-ko-complete .sprite-image { animation: none; transform: scaleY(1); }
 .sprite-stage.entering.facing-right { animation: enter-from-left .72s cubic-bezier(.16,.78,.22,1) both; }
 .sprite-stage.entering.facing-left { animation: enter-from-right .72s cubic-bezier(.16,.78,.22,1) both; }
 @keyframes enter-from-left { from { opacity: 0; transform: translate(-120px,20px) scale(.72); } to { opacity: 1; transform: translate(0,0) scale(1); } }

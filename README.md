@@ -24,7 +24,8 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 - Queimadura, envenenamento, paralisia, sono e congelamento, com efeitos para os dois combatentes.
 - `BattleAnimator` cria um canvas transparente em pixel art sobre a arena, com efeitos escolhidos pelo tipo do movimento.
 - Sprites animados de batalha da geração V da PokéAPI; sprites posicionais de costas/frente e ilustração oficial como alternativas.
-- Animação de respiração no próprio sprite, preparação elemental, avanço/recuo, impacto e nocaute.
+- Rig articulado 2D com três juntas sobrepostas (base, tronco e cabeça/asas), usando o próprio sprite da PokéAPI em cada camada.
+- Idle articulado, preparação, investida/recuo, reação a impacto e nocaute sincronizados com a sequência de ataques.
 - Sequência de ataque, efeito, impacto e dissipação; HP/status são atualizados no callback de impacto.
 - Coordenadas dos efeitos calculadas pelos limites visuais dos combatentes, com reação do alvo e tremor da arena.
 - Efeitos sincronizados com o dano e o HP; os comandos ficam bloqueados durante cada ação.
@@ -34,12 +35,12 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 ## Observações sobre a batalha
 A arena é uma simulação didática própria, não uma reprodução integral das regras oficiais dos jogos. Usa movimentos e atributos da API e uma tabela de efetividade elemental. Efeitos, probabilidades e cálculo de dano foram simplificados para manter o combate rápido.
 
-Sprites animados usam a geração V (Black/White) da PokéAPI, com o sprite de costas para o jogador e o de frente para a IA. Quando o GIF não existe, são usados `sprites.back_default` / `sprites.front_default`; a ilustração oficial serve como fallback final. `battleAnimations.js` anima o próprio elemento do sprite com respiração, preparação, avanço/recuo, reação ao impacto e nocaute, além dos efeitos pixelados no canvas. Os efeitos são genéricos por tipo e arquétipo, não animações oficiais específicas de cada golpe. O sprite é uma imagem 2D inteira: não há rigging ou articulação de membros. A preferência de movimento reduzido preserva o combate e reduz as animações. O script clássico é carregado antes de `app.js`.
+Sprites animados usam a geração V (Black/White) da PokéAPI, com o sprite de costas para o jogador e o de frente para a IA. Quando o GIF não existe, são usados `sprites.back_default` / `sprites.front_default`; a ilustração oficial serve como fallback final. `ArticulatedRig` duplica o mesmo sprite em três camadas recortadas e aninhadas para permitir poses independentes de base, tronco e cabeça/asas sem desenhar o Pokémon em canvas nem substituir a imagem durante o ataque. Os movimentos são aproximações 2D genéricas: o recorte não conhece a anatomia real de cada espécie, portanto não oferece articulação individual de patas, braços, asas ou cauda. Os efeitos pixelados no canvas são genéricos por tipo e arquétipo, não animações oficiais específicas de cada golpe. A preferência de movimento reduzido desativa o idle e simplifica a sequência. Os scripts clássicos são carregados na ordem `battleAnimations.js` antes de `app.js`.
 
 ## Estrutura
 - `index.html` — estrutura e componentes da interface.
 - `style.css` — identidade visual dark futurista e responsividade.
-- `battleAnimations.js` — efeitos de ataque em pixel art e reação ao impacto.
+- `battleAnimations.js` — rig articulado e efeitos de ataque em pixel art.
 - `app.js` — integração com API, pesquisa, detalhes e lógica da arena.
 
 Não é necessário instalar dependências ou configurar chave de API.

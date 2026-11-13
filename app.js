@@ -30,7 +30,11 @@ const state = {
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const arenaContainer = $("#battlefield");
-const animator = new window.BattleAnimator(arenaContainer);
+const battleRigs = [
+  new window.ArticulatedRig($("#spriteOne"),1),
+  new window.ArticulatedRig($("#spriteTwo"),-1)
+];
+const animator = new window.BattleAnimator(arenaContainer,{rigs:battleRigs});
 
 async function api(path){
   const response=await fetch(`${API}${path}`);
@@ -218,17 +222,18 @@ function moveScore(move,attacker){
 function renderFighters(){
   const battle=state.battle;animator.cancel();
   [0,1].forEach(index=>{
-    const suffix=suffixFor(index),pokemon=battle.fighters[index],stage=$("#stage"+suffix),image=$("#sprite"+suffix);
+    const suffix=suffixFor(index),pokemon=battle.fighters[index],stage=$("#stage"+suffix),rig=battleRigs[index];
     const sprite=battleSpriteFor(pokemon,index);
-    let fallbackIndex=0;
-    $("#name"+suffix).textContent=title(pokemon.name);image.alt=title(pokemon.name);
-    image.className="sprite-image";
-    image.onerror=()=>{
-      const fallback=sprite.fallbacks[fallbackIndex++];
-      if(fallback){image.src=fallback;return}
-      image.onerror=null;
+    let fallbacks=[...sprite.fallbacks];
+    $("#name"+suffix).textContent=title(pokemon.name);rig.baseImage.alt=title(pokemon.name);
+    rig.onSpriteError=failedSrc=>{
+      const fallback=fallbacks.shift();
+      if(fallback){rig.setSprite(fallback);rig.startIdle();return}
+      rig.onSpriteError=null;
+      console.error(`Não foi possível carregar o sprite de ${title(pokemon.name)}.`,new Error(failedSrc));
     };
-    image.src=sprite.src;
+    rig.setSprite(sprite.src);
+    rig.startIdle();
     stage.className=`sprite-stage facing-${index===0?"right":"left"}`;
     $("#types"+suffix).innerHTML=pokemon.types.map(type=>badge(type.type.name)).join("");
     updateHealth(index);renderStatus(index);

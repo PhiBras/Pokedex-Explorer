@@ -203,6 +203,7 @@ function injectStylesOnce() {
       animation: pbfx-windup 0.26s steps(3, end) both;
     }
 
+    .sprite-stage.pbfx-rig-charge,
     .sprite-stage.pbfx-anim-windup,
     .sprite-stage.pbfx-anim-lunge,
     .sprite-stage.pbfx-anim-recoil {
@@ -244,6 +245,237 @@ function injectStylesOnce() {
   document.head.appendChild(style);
 }
 
+class ArticulatedRig {
+  constructor(spriteEl, dir = 1) {
+    if (!spriteEl || spriteEl.tagName !== 'IMG' || !spriteEl.parentElement) {
+      throw new Error('ArticulatedRig: um elemento IMG anexado é obrigatório.');
+    }
+
+    this.dir = dir < 0 ? -1 : 1;
+    this._animations = new Set();
+    this._poseToken = 0;
+    this._spriteToken = 0;
+    this.onSpriteError = null;
+    this.root = document.createElement('div');
+    this.root.className = 'articulated-rig';
+
+    this.base = this._createJoint('rig-joint-base');
+    this.torso = this._createJoint('rig-joint-torso');
+    this.head = this._createJoint('rig-joint-head');
+    this.baseImage = spriteEl;
+    this.torsoImage = this._createLayer();
+    this.headImage = this._createLayer();
+
+    spriteEl.classList.add('rig-layer-image', 'rig-layer-base');
+    this.base.appendChild(this.torso);
+    this.torso.append(this.torsoImage, this.head);
+    this.head.appendChild(this.headImage);
+    this.root.appendChild(this.base);
+    spriteEl.parentElement.replaceChild(this.root, spriteEl);
+    this.base.insertBefore(spriteEl, this.torso);
+    this.setSprite(spriteEl.getAttribute('src') || spriteEl.src);
+  }
+
+  _createJoint(className) {
+    const joint = document.createElement('div');
+    joint.className = className;
+    return joint;
+  }
+
+  _createLayer() {
+    const image = document.createElement('img');
+    image.className = 'sprite-image rig-layer-image';
+    image.alt = '';
+    image.setAttribute('aria-hidden', 'true');
+    image.draggable = false;
+    return image;
+  }
+
+  _cancelAnimations() {
+    for (const animation of this._animations) animation.cancel();
+    this._animations.clear();
+  }
+
+  _animate(element, keyframes, options) {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const animation = element.animate(keyframes, {
+      fill: 'forwards',
+      ...options,
+      duration: reducedMotion ? Math.min(options.duration, 45) : options.duration,
+    });
+    animation.finished.catch(() => {});
+    this._animations.add(animation);
+    return animation;
+  }
+
+  async _playPose(poses, options) {
+    const token = ++this._poseToken;
+    this._cancelAnimations();
+    const animations = poses.map(({ element, keyframes, delay = 0 }) =>
+      this._animate(element, keyframes, { ...options, delay })
+    );
+    await Promise.all(animations.map((animation) => animation.finished.catch(() => {})));
+    return token === this._poseToken;
+  }
+
+  setSprite(src) {
+    if (!src) throw new Error('ArticulatedRig.setSprite: src é obrigatório.');
+    this._poseToken++;
+    this._cancelAnimations();
+    this.root.style.removeProperty('opacity');
+    this.root.style.removeProperty('transform');
+    const token = ++this._spriteToken;
+    [this.baseImage, this.torsoImage, this.headImage].forEach((image) => {
+      image.onerror = () => {
+        if (token === this._spriteToken) this.onSpriteError?.(src);
+      };
+      image.src = src;
+    });
+  }
+
+  startIdle() {
+    this._poseToken++;
+    this._cancelAnimations();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const easing = 'cubic-bezier(.45, 0, .55, 1)';
+    [
+      [this.base, [{ transform: 'scaleY(1)' }, { transform: 'scaleY(.97)' }], 1500, 0],
+      [this.torso, [{ transform: 'rotate(0deg)' }, { transform: `rotate(${2 * this.dir}deg)` }], 2200, 110],
+      [this.head, [{ transform: 'rotate(0deg) scaleX(1)' }, { transform: `rotate(${-3 * this.dir}deg) scaleX(1.03)` }], 2200, 230],
+    ].forEach(([element, keyframes, duration, delay]) => {
+      this._animate(element, keyframes, {
+        duration,
+        delay,
+        direction: 'alternate',
+        easing,
+        iterations: Infinity,
+        fill: 'both',
+      });
+    });
+  }
+
+  async playWindup() {
+    const dir = this.dir;
+    return this._playPose([
+      { element: this.base, keyframes: [
+        { transform: 'translateX(0) scaleX(1) scaleY(1)' },
+        { transform: `translateX(${-4 * dir}px) scaleX(1.06) scaleY(.9)` },
+      ] },
+      { element: this.torso, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${-14 * dir}deg)` },
+      ] },
+      { element: this.head, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${-10 * dir}deg)` },
+      ] },
+    ], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+
+  async playStrike(archetype) {
+    const dir = this.dir;
+    const windupBase = `translateX(${-4 * dir}px) scaleX(1.06) scaleY(.9)`;
+    const windupTorso = `rotate(${-14 * dir}deg)`;
+    const windupHead = `rotate(${-10 * dir}deg)`;
+
+    if (archetype === 'slash') {
+      return this._playPose([
+        { element: this.base, keyframes: [
+          { transform: windupBase },
+          { transform: `translateX(${45 * dir}px) scaleX(1) scaleY(1.02)` },
+          { transform: `translateX(${38 * dir}px) scaleX(1) scaleY(1)` },
+          { transform: 'translateX(0) scaleX(1) scaleY(1)' },
+        ] },
+        { element: this.torso, keyframes: [
+          { transform: windupTorso },
+          { transform: `rotate(${24 * dir}deg)` },
+          { transform: `rotate(${10 * dir}deg)` },
+          { transform: 'rotate(0deg)' },
+        ] },
+        { element: this.head, keyframes: [
+          { transform: windupHead },
+          { transform: `rotate(${18 * dir}deg)` },
+          { transform: `rotate(${8 * dir}deg)` },
+          { transform: 'rotate(0deg)' },
+        ] },
+      ], { duration: 430, easing: 'cubic-bezier(.18, .75, .2, 1)' });
+    }
+
+    return this._playPose([
+      { element: this.base, keyframes: [
+        { transform: windupBase },
+        { transform: `translateX(${-10 * dir}px) scaleX(1.02) scaleY(.96)` },
+        { transform: 'translateX(0) scaleX(1) scaleY(1)' },
+      ] },
+      { element: this.torso, keyframes: [
+        { transform: windupTorso },
+        { transform: `rotate(${16 * dir}deg)` },
+        { transform: `rotate(${-8 * dir}deg)` },
+        { transform: 'rotate(0deg)' },
+      ] },
+      { element: this.head, keyframes: [
+        { transform: windupHead },
+        { transform: `translateX(${6 * dir}px) rotate(${5 * dir}deg) scaleX(1.08)` },
+        { transform: `translateX(${-7 * dir}px) rotate(${-8 * dir}deg) scaleX(.98)` },
+        { transform: 'translateX(0) rotate(0deg) scaleX(1)' },
+      ] },
+    ], { duration: 420, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+
+  async playHit() {
+    const dir = this.dir;
+    const completed = await this._playPose([
+      { element: this.base, keyframes: [
+        { transform: 'translateX(0) scaleY(1)' },
+        { transform: `translateX(${-12 * dir}px) scaleY(.97)` },
+        { transform: `translateX(${-4 * dir}px) scaleY(1)` },
+        { transform: 'translateX(0) scaleY(1)' },
+      ] },
+      { element: this.torso, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${18 * dir}deg)` },
+        { transform: `rotate(${-5 * dir}deg)` },
+        { transform: 'rotate(0deg)' },
+      ] },
+      { element: this.head, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${22 * dir}deg)` },
+        { transform: `rotate(${-10 * dir}deg)` },
+        { transform: 'rotate(0deg)' },
+      ] },
+    ], { duration: 380, easing: 'cubic-bezier(.2, .75, .3, 1)' });
+    if (completed) this.startIdle();
+  }
+
+  async playKO() {
+    const dir = this.dir;
+    await this._playPose([
+      { element: this.base, keyframes: [
+        { transform: 'translateY(0) scaleY(1)' },
+        { transform: 'translateY(16px) scaleY(.82)' },
+        { transform: 'translateY(36px) scaleY(.62)' },
+      ] },
+      { element: this.torso, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${28 * dir}deg)` },
+        { transform: `rotate(${45 * dir}deg)` },
+      ] },
+      { element: this.head, keyframes: [
+        { transform: 'rotate(0deg)' },
+        { transform: `rotate(${36 * dir}deg)` },
+        { transform: `rotate(${58 * dir}deg)` },
+      ] },
+      { element: this.root, keyframes: [
+        { opacity: 1, transform: 'translateY(0)' },
+        { opacity: .25, transform: 'translateY(12px)' },
+        { opacity: 1, transform: 'translateY(20px)' },
+        { opacity: 0, transform: 'translateY(48px)' },
+      ] },
+    ], { duration: 900, easing: 'steps(6, end)' });
+  }
+}
+
 class BattleAnimator {
   /**
    * @param {HTMLElement} arenaEl Elemento container da arena onde ficam os dois Pokémon
@@ -256,6 +488,7 @@ class BattleAnimator {
     }
     this.arenaEl = arenaEl;
     this.pixelScale = options.pixelScale || 4;
+    this.rigs = options.rigs || [];
     this.isPlaying = false;
     this._runId = 0;
     this._activeAttacker = null;
@@ -307,7 +540,7 @@ class BattleAnimator {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     [this._activeAttacker, this._activeTarget].forEach((element) => {
       if (!element) return;
-      element.classList.remove('pbfx-anim-windup', 'pbfx-anim-lunge', 'pbfx-anim-recoil', 'pbfx-anim-hit');
+      element.classList.remove('pbfx-anim-windup', 'pbfx-anim-lunge', 'pbfx-anim-recoil', 'pbfx-anim-hit', 'pbfx-rig-charge');
       element.style.removeProperty('--pbfx-dir');
       element.style.removeProperty('--pbfx-glow');
     });
@@ -321,6 +554,11 @@ class BattleAnimator {
     this.isPlaying = false;
     this._clearTransientEffects();
     if (this._activeKO) this._activeKO.cancel();
+    this.rigs.forEach((rig) => rig.startIdle());
+  }
+
+  _getRigFor(element) {
+    return this.rigs.find((rig) => element === rig.root || element.contains(rig.root) || rig.root.contains(element));
   }
 
   _getAnchorPoints(attackerEl, targetEl) {
@@ -380,8 +618,8 @@ class BattleAnimator {
    * Executa a animação completa de ataque e retorna uma Promise ao terminar.
    *
    * @param {Object} params
-   * @param {HTMLElement} params.attackerEl Elemento HTML/IMG do Pokémon atacante
-   * @param {HTMLElement} params.targetEl Elemento HTML/IMG do Pokémon defensor
+   * @param {HTMLElement} params.attackerEl Contêiner visual do Pokémon atacante
+   * @param {HTMLElement} params.targetEl Contêiner visual do Pokémon defensor
    * @param {string} [params.moveType='FOGO'] Tipo do golpe (ex: 'FOGO', 'ÁGUA', 'VOADOR', 'ELÉTRICO')
    * @param {'beam'|'slash'|'bolt'|'projectile'} [params.archetype] Sobrescreve estilo visual se desejado
    * @param {'physical'|'special'|'status'} [params.moveCategory] Categoria do golpe
@@ -399,6 +637,8 @@ class BattleAnimator {
     this.isPlaying = true;
     this._activeAttacker = attackerEl;
     this._activeTarget = targetEl;
+    const attackerRig = this._getRigFor(attackerEl);
+    const targetRig = this._getRigFor(targetEl);
 
     const normalized = normalizeType(moveType);
     const config = TYPE_CONFIGS[normalized] || TYPE_CONFIGS.NORMAL;
@@ -412,13 +652,24 @@ class BattleAnimator {
 
     const { startX, startY, endX, endY, dir } = this._getAnchorPoints(attackerEl, targetEl);
 
+    let targetMotion = Promise.resolve();
+    let strikeMotion = Promise.resolve();
     try {
       if (attackerEl !== targetEl) {
-        this._triggerWindUp(attackerEl, dir, palette.outer);
-        await new Promise((resolve) => setTimeout(resolve, 260));
+        if (attackerRig) {
+          attackerEl.style.setProperty('--pbfx-glow', palette.outer);
+          attackerEl.classList.add('pbfx-rig-charge');
+          await attackerRig.playWindup();
+        } else {
+          this._triggerWindUp(attackerEl, dir, palette.outer);
+          await new Promise((resolve) => setTimeout(resolve, 260));
+        }
         if (!isCurrent()) return;
-        attackerEl.classList.remove('pbfx-anim-windup');
-        if (effectType === 'slash') {
+        attackerEl.classList.remove('pbfx-anim-windup', 'pbfx-rig-charge');
+        if (attackerRig) {
+          strikeMotion = attackerRig.playStrike(effectType);
+          if (effectType === 'slash') await new Promise((resolve) => setTimeout(resolve, 110));
+        } else if (effectType === 'slash') {
           this._triggerLunge(attackerEl, dir);
           await new Promise((resolve) => setTimeout(resolve, 110));
         } else {
@@ -429,23 +680,28 @@ class BattleAnimator {
 
       const handleImpact = () => {
         if (isCurrent() && typeof onImpact === 'function') {
+          if (targetRig) targetMotion = targetRig.playHit();
           this._triggerHitReaction(targetEl, dir, onImpact);
         }
       };
 
+      let effectMotion;
       if (effectType === 'bolt') {
-        await this._renderBolt(startX, startY, endX, endY, palette, handleImpact, isCurrent);
+        effectMotion = this._renderBolt(startX, startY, endX, endY, palette, handleImpact, isCurrent);
       } else if (effectType === 'slash') {
-        await this._renderSlash(endX, endY, dir, palette, handleImpact, isCurrent);
+        effectMotion = this._renderSlash(endX, endY, dir, palette, handleImpact, isCurrent);
       } else if (effectType === 'projectile') {
-        await this._renderProjectile(startX, startY, endX, endY, palette, handleImpact, isCurrent);
+        effectMotion = this._renderProjectile(startX, startY, endX, endY, palette, handleImpact, isCurrent);
       } else {
-        await this._renderBeam(startX, startY, endX, endY, palette, handleImpact, isCurrent);
+        effectMotion = this._renderBeam(startX, startY, endX, endY, palette, handleImpact, isCurrent);
       }
+      await Promise.all([effectMotion, strikeMotion]);
+      await targetMotion;
     } finally {
       if (isCurrent()) {
         this._clearTransientEffects();
         this.isPlaying = false;
+        if (attackerRig) attackerRig.startIdle();
       }
     }
   }
@@ -453,6 +709,11 @@ class BattleAnimator {
   async playKO(targetEl) {
     if (!targetEl) return;
     this.cancel();
+    const targetRig = this._getRigFor(targetEl);
+    if (targetRig) {
+      await targetRig.playKO();
+      return;
+    }
     targetEl.classList.remove('pbfx-ko-complete', 'pbfx-anim-ko', 'entering', 'victorious');
     void targetEl.offsetWidth;
 
@@ -888,5 +1149,6 @@ class BattleAnimator {
 
 // Compatibilidade global caso o projeto não use ES Modules
 if (typeof window !== 'undefined') {
+  window.ArticulatedRig = ArticulatedRig;
   window.BattleAnimator = BattleAnimator;
 }
