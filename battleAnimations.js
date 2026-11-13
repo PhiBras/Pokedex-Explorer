@@ -404,10 +404,6 @@ class ArticulatedRig {
       spriteEl.className.split(/\s+/).filter(Boolean).forEach((c) => root.classList.add(c));
     }
 
-    const cs = window.getComputedStyle(spriteEl);
-    if (cs.width && cs.width !== '0px') root.style.width = cs.width;
-    if (cs.height && cs.height !== '0px') root.style.height = cs.height;
-
     const placeholder = document.createElement('img');
     placeholder.className = 'pbfx-rig-placeholder';
     placeholder.alt = spriteEl.alt || speciesName || '';
@@ -452,6 +448,9 @@ class ArticulatedRig {
   }
 
   setSprite(src, speciesName = '') {
+    this.koGeneration = (this.koGeneration || 0) + 1;
+    this.koAnims?.forEach((animation) => animation.cancel());
+    this.koAnims = [];
     if (src) {
       this.placeholder.src = src;
       this.baseImg.src = src;
@@ -463,6 +462,8 @@ class ArticulatedRig {
     }
     this.speciesProfile = resolveSpeciesProfile(speciesName, this.root);
     this.root.style.opacity = '1';
+    this.root.style.transform = '';
+    this.root.style.filter = '';
     this.baseEl.style.transform = '';
     this.torsoEl.style.transform = '';
     this.headEl.style.transform = '';
@@ -726,24 +727,42 @@ class ArticulatedRig {
   async playKO(dir = 1) {
     this.stopIdle();
     const dur = 680;
-    await Promise.all([
+    const generation = (this.koGeneration || 0) + 1;
+    this.koGeneration = generation;
+    this.koAnims = [
       this.torsoEl.animate(
         [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-24 * dir}deg)` }],
-        { duration: 300, fill: 'forwards', easing: 'ease-in' }
-      ).finished,
+        { duration: 300, easing: 'ease-in' }
+      ),
       this.headEl.animate(
         [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-30 * dir}deg)` }],
-        { duration: 300, fill: 'forwards', easing: 'ease-in' }
-      ).finished,
+        { duration: 300, easing: 'ease-in' }
+      ),
       this.root.animate(
         [
           { transform: 'translateY(0px)', opacity: 1, filter: 'brightness(2)' },
           { transform: 'translateY(12px)', opacity: 0.8, offset: 0.35 },
           { transform: 'translateY(65px)', opacity: 0 },
         ],
-        { duration: dur, fill: 'forwards', easing: 'ease-in' }
-      ).finished,
-    ]);
+        { duration: dur, easing: 'ease-in' }
+      ),
+    ];
+
+    try {
+      await Promise.all(this.koAnims.map((animation) => animation.finished));
+    } catch (error) {
+      if (generation !== this.koGeneration) return;
+      throw error;
+    } finally {
+      if (generation === this.koGeneration) {
+        this.koAnims = [];
+        this.torsoEl.style.transform = `rotate(${-24 * dir}deg)`;
+        this.headEl.style.transform = `rotate(${-30 * dir}deg)`;
+        this.root.style.transform = 'translateY(65px)';
+        this.root.style.opacity = '0';
+        this.root.style.filter = '';
+      }
+    }
   }
 }
 

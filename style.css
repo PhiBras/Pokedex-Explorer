@@ -466,6 +466,12 @@ body::before {
   animation: none;
   pointer-events: none;
 }
+.sprite-stage > .pbfx-rig-root {
+  position: absolute;
+  inset: 6%;
+  width: auto;
+  height: auto;
+}
 .rig-joint-base > .rig-layer-base { clip-path: inset(64% -20% 0% -20%); }
 .rig-joint-torso > .sprite-image { clip-path: inset(32% -20% 30% -20%); }
 .rig-joint-head > .sprite-image { clip-path: inset(-10% -20% 62% -20%); }
