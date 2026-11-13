@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b0b0d">
+  <meta name="description" content="NEONDEX 3.0: Pokédex futurista e arena de batalha animada com sprites da PokéAPI.">
+  <meta name="author" content="PhiBras">
+  <title>NEONDEX 3.0 — Pokémon Database</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Neondex início"><span class="brand-mark">N</span><span>NEON<span class="brand-accent">DEX</span><small>POKÉMON DATABASE</small></span></a>
+    <nav class="main-nav" aria-label="Navegação principal">
+      <button class="nav-link active" data-page="dex"><span>01</span> Pokédex</button>
+      <button class="nav-link" data-page="arena"><span>02</span> Arena de batalha</button>
+    </nav>
+    <div class="top-status"><i></i> SISTEMA ONLINE <span class="top-divider"></span> API V2</div>
+  </header>
+
+  <main>
+    <section id="dexPage" class="page active">
+      <div class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> CENTRAL DE PESQUISA <span class="eyebrow-dot"></span> #001—1025</div>
+          <h1>EXPLORE O<br><span>UNIVERSO</span><br>POKÉMON.</h1>
+          <p class="hero-description">Acesse dados, habilidades e atributos de criaturas de todas as regiões. Sua próxima descoberta começa aqui.</p>
+          <div class="hero-stats"><div><strong>1.025</strong><small>POKÉMON</small></div><div><strong>18</strong><small>TIPOS</small></div><div><strong>∞</strong><small>POSSIBILIDADES</small></div></div>
+        </div>
+        <div class="hero-art">
+          <div class="hero-orbit orbit-a"></div><div class="hero-orbit orbit-b"></div>
+          <div class="hero-glow"></div>
+          <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png" alt="Mewtwo" class="hero-pokemon">
+          <div class="art-label"><span>POKÉMON EM DESTAQUE</span><strong>MEWTWO <small>#150</small></strong><i>PSYCHIC / GENETIC</i></div>
+          <div class="crosshair crosshair-a">+</div><div class="crosshair crosshair-b">+</div>
+        </div>
+      </div>
+
+      <section class="catalog-section">
+        <div class="section-heading"><div><div class="eyebrow">BANCO DE DADOS <span class="eyebrow-dot"></span> LIVE SEARCH</div><h2>POKÉDEX <span>GLOBAL</span></h2></div><div class="result-count" id="resultCount">CARREGANDO REGISTROS...</div></div>
+        <div class="search-panel">
+          <label class="search-box"><span class="search-icon">⌕</span><input id="searchInput" type="search" placeholder="Busque por nome ou número..." autocomplete="off"><kbd>ENTER</kbd></label>
+          <label class="filter-select"><span>TIPO</span><select id="typeFilter"><option value="">Todos os tipos</option></select></label>
+          <label class="filter-select"><span>ORDENAR</span><select id="sortFilter"><option value="id">Número: crescente</option><option value="name">Nome: A–Z</option><option value="id-desc">Número: decrescente</option></select></label>
+          <button id="clearFilters" class="icon-button" title="Limpar filtros">↺</button>
+        </div>
+        <div id="pokemonGrid" class="pokemon-grid" aria-live="polite"><div class="loading-state"><span class="loader"></span> Sincronizando com a PokéAPI...</div></div>
+        <div class="catalog-footer"><span id="pageInfo">—</span><div class="pagination"><button id="prevPage" class="page-button" disabled>← ANTERIOR</button><button id="nextPage" class="page-button">PRÓXIMA →</button></div></div>
+      </section>
+    </section>
+
+    <section id="arenaPage" class="page">
+      <div class="arena-header"><div class="eyebrow"><span class="eyebrow-line"></span> COMBATE SIMULADO <span class="eyebrow-dot"></span> DESAFIO SOLO</div><h1>ENTRE NA <span>ARENA.</span></h1><p>Escolha seu Pokémon e enfrente um adversário controlado pela inteligência artificial.</p></div>
+      <div class="arena-controls">
+        <div class="fighter-select"><label for="fighterOne">JOGADOR 01 <span>◆</span></label><div class="select-wrap"><select id="fighterOne"><option value="6">Charizard</option></select></div></div>
+        <div class="versus">VS</div>
+        <div class="fighter-select"><label for="fighterTwo">ADVERSÁRIO · IA <span>◆</span></label><div class="select-wrap"><select id="fighterTwo"><option value="9">Blastoise</option></select></div></div>
+      </div>
+      <div id="battlefield" class="battlefield">
+        <div class="battle-grid"></div>
+        <div id="battleFighterOne" class="fighter fighter-left">
+          <div class="fighter-meta"><span class="player-tag">SEU POKÉMON <span class="level-tag">NV. 50</span></span><h2 id="nameOne">CHARIZARD</h2><div id="typesOne" class="type-list"></div><div id="statusOne" class="status-indicator" aria-live="polite"></div><div id="spriteCreditOne" class="sprite-credit" aria-live="polite"></div></div>
+          <div id="platformOne" class="battle-platform" aria-hidden="true"></div>
+          <div id="stageOne" class="sprite-stage"><canvas id="bodyCanvasOne" class="sprite-image sprite-canvas" aria-label="Animação corporal do Pokémon jogador" hidden></canvas><img id="spriteOne" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png" alt="Pokémon jogador"></div>
+          <div class="health-wrap"><div class="health-label"><span>HP</span><strong id="hpTextOne">100 / 100</strong></div><div class="health-track"><div id="healthOne" class="health-fill"></div></div></div>
+        </div>
+        <div class="battle-vs">VS</div>
+        <div id="battleFighterTwo" class="fighter fighter-right">
+          <div class="fighter-meta"><span class="player-tag">ADVERSÁRIO · IA <span class="level-tag">NV. 50</span></span><h2 id="nameTwo">BLASTOISE</h2><div id="typesTwo" class="type-list"></div><div id="statusTwo" class="status-indicator" aria-live="polite"></div><div id="spriteCreditTwo" class="sprite-credit" aria-live="polite"></div></div>
+          <div id="platformTwo" class="battle-platform" aria-hidden="true"></div>
+          <div id="stageTwo" class="sprite-stage"><canvas id="bodyCanvasTwo" class="sprite-image sprite-canvas" aria-label="Animação corporal do Pokémon adversário" hidden></canvas><img id="spriteTwo" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/9.png" alt="Pokémon adversário"></div>
+          <div class="health-wrap"><div class="health-label"><span>HP</span><strong id="hpTextTwo">100 / 100</strong></div><div class="health-track"><div id="healthTwo" class="health-fill"></div></div></div>
+        </div>
+      </div>
+      <div class="battle-lower">
+        <section class="moves-panel"><div class="panel-heading"><div><span class="eyebrow">COMANDOS</span><h3>SELECIONE UM ATAQUE</h3></div><span class="turn-indicator" id="turnIndicator">SUA VEZ</span></div><div id="moveButtons" class="move-buttons"><div class="loading-state">Carregando movimentos...</div></div><div class="battle-actions"><button id="restartBattle" class="secondary-button">↻ REINICIAR COMBATE</button><span>O adversário joga automaticamente após sua ação.</span></div></section>
+        <section class="log-panel"><div class="panel-heading"><div><span class="eyebrow">COMUNICAÇÃO</span><h3>LOG DE BATALHA</h3></div><span class="live-pill"><i></i> LIVE</span></div><div id="battleLog" class="battle-log"><p class="log-muted">Aguardando início do combate...</p></div></section>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer"><span>NEONDEX · DESENVOLVIDO POR <b>PHIBRAS</b></span><span>POWERED BY <a href="https://pokeapi.co/" target="_blank" rel="noreferrer">POKÉAPI</a></span><span>FEITO PARA TREINADORES <b>▲</b></span></footer>
+
+  <div id="detailModal" class="modal" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><article class="detail-card"><button class="modal-close" data-close-modal aria-label="Fechar">×</button><div id="detailContent"></div></article></div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="battleAnimations.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
