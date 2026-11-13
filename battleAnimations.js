@@ -1,7 +1,15 @@
 /**
- * BattleAnimator & ArticulatedRig v2.0 - Motor de Animações Individuais 2D Pixel Art
- * Cada golpe possui coreografia corporal articulada + renderização visual própria no Canvas 4x,
- * mapeada por nome do ataque (PokeAPI slug / EN / PT) e classe de dano (physical / special / status).
+ * BattleAnimator & ArticulatedRig v3.0 — Motor Procedural de Animações Únicas por Golpe e por Pokémon
+ *
+ * Diferenciais v3.0:
+ * 1. DNA Individual por Golpe (900+ golpes): combina metadados da PokeAPI (name, type, damageClass,
+ *    power, priority, drain, meta) com hash determinístico paramétrico (trajetória, frequência de onda,
+ *    geometria de projétil, formação, contagem, rotação, rastro e detonação). Nenhum golpe é igual ao outro.
+ * 2. DNA Anatômico por Pokémon: identifica automaticamente a espécie (via `attackerName`, `alt`, ou ID na URL
+ *    do sprite da PokeAPI) para adaptar postura articulada (bípede/dragão, quadrúpede, voador/alado,
+ *    serpentino/flutuante, artilharia/canhões duplos como Blastoise), pontos de disparo e paleta secundária.
+ * 3. Drenagem & Status Reais: golpes como Giga Drain / Drain Punch enviam orbes de energia do alvo de volta
+ *    ao atacante; golpes de recuo (Flare Blitz / Brave Bird) aplicam contra-golpe visual.
  */
 
 const TYPE_PALETTES = {
@@ -43,150 +51,64 @@ const TYPE_PALETTES = {
 };
 
 /**
- * Assinaturas individuais de golpes famosos (aceita slug da PokeAPI, inglês ou português normalizado).
- * Estilos disponíveis:
- * - stream        : Jato contínuo pressurizado (Lança-chamas, Hidro Bomba, Raio de Gelo)
- * - fire_blast    : Bola de fogo que explode em estrela de 5 pontas (Fire Blast, Overheat)
- * - solar_beam    : Carga de esferas de energia + mega laser atravessando a arena (Solar Beam, Hyper Beam)
- * - wave          : Onda gigante varrendo o chão da arena (Surf, Muddy Water, Lava Plume)
- * - multi_proj    : Rajada sequencial de projéteis/folhas/brasas/estrelas (Razor Leaf, Ember, Swift, Bullet Seed)
- * - blitz_charge  : Investida corporal envolta em aura atravessando o inimigo (Flare Blitz, Brave Bird, Volt Tackle, Quick Attack)
- * - slash_combo   : Avanço + cortes diagonais/cruzados de garra ou lâmina (Dragon Claw, Air Slash, X-Scissor, Night Slash)
- * - multi_punch   : Sequência rápida de socos/impactos com ondas de choque (Close Combat, Mach Punch, Meteor Mash, Giga Impact)
- * - bolt_sky      : Relâmpago vertical caindo do céu com ramificações (Thunder)
- * - bolt_arc      : Descarga elétrica horizontal saindo do atacante (Thunderbolt, Discharge)
- * - quake         : Terremoto com fissuras e pilares de rocha brotando do solo (Earthquake, Earth Power)
- * - rock_barrage  : Pedregulhos ou lâminas de pedra levitando e cravando no alvo (Stone Edge, Rock Slide)
- * - psychic_pulse : Ondas concêntricas distorcidas / telecinese (Psychic, Dragon Pulse, Dark Pulse)
- * - energy_orb    : Esfera densa de energia com rastro e detonação (Shadow Ball, Aura Sphere, Sludge Bomb, Energy Ball)
- * - vortex_storm  : Ciclone / nevasca giratória engolindo o alvo (Blizzard, Hurricane, Petal Dance, Sandstorm)
- * - status_buff   : Aura de fortalecimento, cura ou escudo no próprio usuário (Swords Dance, Dragon Dance, Roost, Protect)
+ * Perfis anatômicos notáveis por ID da Pokédex ou nome (fallback procedural cobre todos os outros 1000+ Pokémon)
  */
-const MOVE_SIGNATURES = {
-  // FOGO
-  'flamethrower':   { style: 'stream', type: 'FIRE', thickness: 1.0, duration: 920 },
-  'lanca chamas':   { style: 'stream', type: 'FIRE', thickness: 1.0, duration: 920 },
-  'fire blast':     { style: 'fire_blast', type: 'FIRE', duration: 1050 },
-  'rajada de fogo': { style: 'fire_blast', type: 'FIRE', duration: 1050 },
-  'overheat':       { style: 'fire_blast', type: 'FIRE', duration: 1100 },
-  'superaquecimento': { style: 'fire_blast', type: 'FIRE', duration: 1100 },
-  'blast burn':     { style: 'fire_blast', type: 'FIRE', duration: 1150 },
-  'ember':          { style: 'multi_proj', type: 'FIRE', count: 5, shape: 'orb', duration: 720 },
-  'brasa':          { style: 'multi_proj', type: 'FIRE', count: 5, shape: 'orb', duration: 720 },
-  'flare blitz':    { style: 'blitz_charge', type: 'FIRE', recoil: true, duration: 780 },
-  'investida de fogo': { style: 'blitz_charge', type: 'FIRE', recoil: true, duration: 780 },
-  'fire punch':     { style: 'multi_punch', type: 'FIRE', hits: 2, duration: 620 },
-  'soco de fogo':   { style: 'multi_punch', type: 'FIRE', hits: 2, duration: 620 },
-  'heat wave':      { style: 'wave', type: 'FIRE', duration: 880 },
-  'lava plume':     { style: 'wave', type: 'FIRE', duration: 880 },
+const SPECIES_ANATOMY_OVERRIDES = {
+  // Artilharia / Canhões Duplos (dispara 2 feixes paralelos dos ombros!)
+  '9':   { bodyType: 'artillery', dualEmitter: true, muzzleX: 0.48, muzzleY: 0.28, accent: '#e0f2fe', rigLean: 0.75 }, // Blastoise
+  'blastoise': { bodyType: 'artillery', dualEmitter: true, muzzleX: 0.48, muzzleY: 0.28, accent: '#e0f2fe', rigLean: 0.75 },
+  '467': { bodyType: 'artillery', dualEmitter: true, muzzleX: 0.55, muzzleY: 0.45, accent: '#fef08a', rigLean: 0.9 }, // Magmortar
+  'magmortar': { bodyType: 'artillery', dualEmitter: true, muzzleX: 0.55, muzzleY: 0.45, accent: '#fef08a', rigLean: 0.9 },
+  '693': { bodyType: 'artillery', dualEmitter: false, muzzleX: 0.65, muzzleY: 0.45, accent: '#38bdf8', rigLean: 0.85 }, // Clawitzer
+  'clawitzer': { bodyType: 'artillery', dualEmitter: false, muzzleX: 0.65, muzzleY: 0.45, accent: '#38bdf8', rigLean: 0.85 },
 
-  // ÁGUA
-  'hydro pump':     { style: 'stream', type: 'WATER', thickness: 1.35, duration: 950 },
-  'hidro bomba':    { style: 'stream', type: 'WATER', thickness: 1.35, duration: 950 },
-  'water gun':      { style: 'stream', type: 'WATER', thickness: 0.65, duration: 680 },
-  'jato de agua':   { style: 'stream', type: 'WATER', thickness: 0.65, duration: 680 },
-  'surf':           { style: 'wave', type: 'WATER', duration: 960 },
-  'surfar':         { style: 'wave', type: 'WATER', duration: 960 },
-  'muddy water':    { style: 'wave', type: 'GROUND', duration: 940 },
-  'bubble beam':    { style: 'multi_proj', type: 'WATER', count: 8, shape: 'ring', duration: 780 },
-  'water pulse':    { style: 'psychic_pulse', type: 'WATER', duration: 760 },
-  'aqua tail':      { style: 'slash_combo', type: 'WATER', slashes: 2, duration: 540 },
-  'waterfall':      { style: 'blitz_charge', type: 'WATER', duration: 720 },
-  'aqua jet':       { style: 'blitz_charge', type: 'WATER', fast: true, duration: 520 },
-  'water shuriken': { style: 'multi_proj', type: 'WATER', count: 5, shape: 'star', duration: 680 },
+  // Dragões / Alados (inclinação ampla de pescoço, abertura de asas e mergulho aéreo)
+  '6':   { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.74, muzzleY: 0.34, accent: '#2dd4bf', rigLean: 1.25 }, // Charizard
+  'charizard': { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.74, muzzleY: 0.34, accent: '#2dd4bf', rigLean: 1.25 },
+  '149': { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.70, muzzleY: 0.32, accent: '#fde047', rigLean: 1.15 }, // Dragonite
+  'dragonite': { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.70, muzzleY: 0.32, accent: '#fde047', rigLean: 1.15 },
+  '373': { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.38, accent: '#f43f5e', rigLean: 1.3 }, // Salamence
+  'salamence': { bodyType: 'avian_dragon', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.38, accent: '#f43f5e', rigLean: 1.3 },
+  '384': { bodyType: 'serpentine', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.30, accent: '#34d399', rigLean: 1.35 }, // Rayquaza
+  'rayquaza': { bodyType: 'serpentine', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.30, accent: '#34d399', rigLean: 1.35 },
 
-  // PLANTA
-  'solar beam':     { style: 'solar_beam', type: 'GRASS', duration: 1250 },
-  'raio solar':     { style: 'solar_beam', type: 'GRASS', duration: 1250 },
-  'frenzy plant':   { style: 'quake', type: 'GRASS', duration: 980 },
-  'razor leaf':     { style: 'multi_proj', type: 'GRASS', count: 7, shape: 'leaf', duration: 760 },
-  'folha navalha':  { style: 'multi_proj', type: 'GRASS', count: 7, shape: 'leaf', duration: 760 },
-  'magical leaf':   { style: 'multi_proj', type: 'GRASS', count: 7, shape: 'leaf', duration: 760 },
-  'bullet seed':    { style: 'multi_proj', type: 'GRASS', count: 6, shape: 'orb', duration: 700 },
-  'leaf blade':     { style: 'slash_combo', type: 'GRASS', slashes: 2, duration: 500 },
-  'energy ball':    { style: 'energy_orb', type: 'GRASS', duration: 720 },
-  'bola de energia': { style: 'energy_orb', type: 'GRASS', duration: 720 },
-  'giga drain':     { style: 'psychic_pulse', type: 'GRASS', duration: 820 },
-  'petal dance':    { style: 'vortex_storm', type: 'GRASS', duration: 950 },
+  // Quadrúpedes / Pesados (agachamento baixo, disparo dorsal/frontal)
+  '3':   { bodyType: 'quadruped', dualEmitter: false, muzzleX: 0.55, muzzleY: 0.30, accent: '#f472b6', rigLean: 0.85 }, // Venusaur
+  'venusaur': { bodyType: 'quadruped', dualEmitter: false, muzzleX: 0.55, muzzleY: 0.30, accent: '#f472b6', rigLean: 0.85 },
+  '59':  { bodyType: 'quadruped', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.36, accent: '#fde047', rigLean: 1.2 }, // Arcanine
+  'arcanine': { bodyType: 'quadruped', dualEmitter: false, muzzleX: 0.72, muzzleY: 0.36, accent: '#fde047', rigLean: 1.2 },
 
-  // ELÉTRICO
-  'thunder':        { style: 'bolt_sky', type: 'ELECTRIC', duration: 680 },
-  'trovao':         { style: 'bolt_sky', type: 'ELECTRIC', duration: 680 },
-  'thunderbolt':    { style: 'bolt_arc', type: 'ELECTRIC', duration: 620 },
-  'choque do trovao': { style: 'bolt_arc', type: 'ELECTRIC', duration: 620 },
-  'discharge':      { style: 'bolt_arc', type: 'ELECTRIC', duration: 680 },
-  'volt tackle':    { style: 'blitz_charge', type: 'ELECTRIC', recoil: true, duration: 760 },
-  'wild charge':    { style: 'blitz_charge', type: 'ELECTRIC', recoil: true, duration: 740 },
-  'thunder punch':  { style: 'multi_punch', type: 'ELECTRIC', hits: 2, duration: 600 },
-
-  // DRAGÃO & VOADOR
-  'dragon claw':    { style: 'slash_combo', type: 'DRAGON', slashes: 3, duration: 520 },
-  'garra de dragao': { style: 'slash_combo', type: 'DRAGON', slashes: 3, duration: 520 },
-  'dragon pulse':   { style: 'psychic_pulse', type: 'DRAGON', duration: 780 },
-  'pulso do dragao': { style: 'psychic_pulse', type: 'DRAGON', duration: 780 },
-  'dragon rush':    { style: 'blitz_charge', type: 'DRAGON', duration: 760 },
-  'outrage':        { style: 'multi_punch', type: 'DRAGON', hits: 4, duration: 820 },
-  'draco meteor':   { style: 'rock_barrage', type: 'DRAGON', duration: 980 },
-  'air slash':      { style: 'slash_combo', type: 'FLYING', slashes: 2, duration: 500 },
-  'corte aereo':    { style: 'slash_combo', type: 'FLYING', slashes: 2, duration: 500 },
-  'hurricane':      { style: 'vortex_storm', type: 'FLYING', duration: 980 },
-  'furacao':        { style: 'vortex_storm', type: 'FLYING', duration: 980 },
-  'brave bird':     { style: 'blitz_charge', type: 'FLYING', recoil: true, duration: 760 },
-  'passaro bravo':  { style: 'blitz_charge', type: 'FLYING', recoil: true, duration: 760 },
-  'wing attack':    { style: 'slash_combo', type: 'FLYING', slashes: 2, duration: 480 },
-  'ataque de asa':  { style: 'slash_combo', type: 'FLYING', slashes: 2, duration: 480 },
-
-  // TERRA, PEDRA & GELO
-  'earthquake':     { style: 'quake', type: 'GROUND', duration: 920 },
-  'terremoto':      { style: 'quake', type: 'GROUND', duration: 920 },
-  'earth power':    { style: 'quake', type: 'GROUND', duration: 880 },
-  'stone edge':     { style: 'rock_barrage', type: 'ROCK', duration: 780 },
-  'gume de pedra':  { style: 'rock_barrage', type: 'ROCK', duration: 780 },
-  'rock slide':     { style: 'rock_barrage', type: 'ROCK', duration: 820 },
-  'ice beam':       { style: 'stream', type: 'ICE', thickness: 0.9, duration: 860 },
-  'raio de gelo':   { style: 'stream', type: 'ICE', thickness: 0.9, duration: 860 },
-  'blizzard':       { style: 'vortex_storm', type: 'ICE', duration: 980 },
-  'nevasca':        { style: 'vortex_storm', type: 'ICE', duration: 980 },
-  'ice punch':      { style: 'multi_punch', type: 'ICE', hits: 2, duration: 600 },
-
-  // PSÍQUICO, FANTASMA, SOMBRIO, LUTADOR, AÇO, NORMAL
-  'psychic':        { style: 'psychic_pulse', type: 'PSYCHIC', duration: 840 },
-  'psiquico':       { style: 'psychic_pulse', type: 'PSYCHIC', duration: 840 },
-  'shadow ball':    { style: 'energy_orb', type: 'GHOST', duration: 740 },
-  'bola sombria':   { style: 'energy_orb', type: 'GHOST', duration: 740 },
-  'shadow claw':    { style: 'slash_combo', type: 'GHOST', slashes: 3, duration: 520 },
-  'dark pulse':     { style: 'psychic_pulse', type: 'DARK', duration: 780 },
-  'crunch':         { style: 'multi_punch', type: 'DARK', hits: 2, duration: 560 },
-  'sludge bomb':    { style: 'energy_orb', type: 'POISON', duration: 740 },
-  'close combat':   { style: 'multi_punch', type: 'FIGHTING', hits: 5, duration: 820 },
-  'combate proximo': { style: 'multi_punch', type: 'FIGHTING', hits: 5, duration: 820 },
-  'aura sphere':    { style: 'energy_orb', type: 'FIGHTING', duration: 700 },
-  'esfera de aura': { style: 'energy_orb', type: 'FIGHTING', duration: 700 },
-  'mach punch':     { style: 'multi_punch', type: 'FIGHTING', hits: 1, fast: true, duration: 460 },
-  'flash cannon':   { style: 'solar_beam', type: 'STEEL', duration: 960 },
-  'iron tail':      { style: 'slash_combo', type: 'STEEL', slashes: 1, duration: 540 },
-  'cauda de ferro': { style: 'slash_combo', type: 'STEEL', slashes: 1, duration: 540 },
-  'hyper beam':     { style: 'solar_beam', type: 'NORMAL', duration: 1200 },
-  'hiper raio':     { style: 'solar_beam', type: 'NORMAL', duration: 1200 },
-  'giga impact':    { style: 'blitz_charge', type: 'NORMAL', recoil: true, duration: 840 },
-  'quick attack':   { style: 'blitz_charge', type: 'NORMAL', fast: true, duration: 480 },
-  'ataque rapido':  { style: 'blitz_charge', type: 'NORMAL', fast: true, duration: 480 },
-  'swift':          { style: 'multi_proj', type: 'NORMAL', count: 6, shape: 'star', duration: 700 },
-  'x scissor':      { style: 'slash_combo', type: 'BUG', slashes: 2, cross: true, duration: 520 },
-  'moonblast':      { style: 'energy_orb', type: 'FAIRY', duration: 800 },
-  'dazzling gleam': { style: 'psychic_pulse', type: 'FAIRY', duration: 760 },
-
-  // STATUS / BUFFS / CURA
-  'swords dance':   { style: 'status_buff', type: 'NORMAL', mode: 'buff', duration: 760 },
-  'danca das espadas': { style: 'status_buff', type: 'NORMAL', mode: 'buff', duration: 760 },
-  'dragon dance':   { style: 'status_buff', type: 'DRAGON', mode: 'buff', duration: 780 },
-  'calm mind':      { style: 'status_buff', type: 'PSYCHIC', mode: 'buff', duration: 760 },
-  'roost':          { style: 'status_buff', type: 'FLYING', mode: 'heal', duration: 760 },
-  'recover':        { style: 'status_buff', type: 'NORMAL', mode: 'heal', duration: 760 },
-  'synthesis':      { style: 'status_buff', type: 'GRASS', mode: 'heal', duration: 760 },
-  'protect':        { style: 'status_buff', type: 'NORMAL', mode: 'shield', duration: 680 },
-  'proteger':       { style: 'status_buff', type: 'NORMAL', mode: 'shield', duration: 680 },
+  // Flutuantes / Psíquicos / Fantasmas (levitação durante carga, telecinese sem recuo físico pesado)
+  '94':  { bodyType: 'floating', dualEmitter: false, muzzleX: 0.62, muzzleY: 0.45, accent: '#e879f9', rigLean: 1.1 }, // Gengar
+  'gengar': { bodyType: 'floating', dualEmitter: false, muzzleX: 0.62, muzzleY: 0.45, accent: '#e879f9', rigLean: 1.1 },
+  '65':  { bodyType: 'floating', dualEmitter: true, muzzleX: 0.62, muzzleY: 0.40, accent: '#fef08a', rigLean: 0.9 }, // Alakazam
+  'alakazam': { bodyType: 'floating', dualEmitter: true, muzzleX: 0.62, muzzleY: 0.40, accent: '#fef08a', rigLean: 0.9 },
+  '150': { bodyType: 'floating', dualEmitter: false, muzzleX: 0.64, muzzleY: 0.38, accent: '#c084fc', rigLean: 1.0 }, // Mewtwo
+  'mewtwo': { bodyType: 'floating', dualEmitter: false, muzzleX: 0.64, muzzleY: 0.38, accent: '#c084fc', rigLean: 1.0 },
+  '448': { bodyType: 'biped', dualEmitter: false, muzzleX: 0.66, muzzleY: 0.44, accent: '#38bdf8', rigLean: 1.15 }, // Lucario
+  'lucario': { bodyType: 'biped', dualEmitter: false, muzzleX: 0.66, muzzleY: 0.44, accent: '#38bdf8', rigLean: 1.15 },
+  '25':  { bodyType: 'biped', dualEmitter: true, muzzleX: 0.60, muzzleY: 0.44, accent: '#ef4444', rigLean: 1.2 }, // Pikachu
+  'pikachu': { bodyType: 'biped', dualEmitter: true, muzzleX: 0.60, muzzleY: 0.44, accent: '#ef4444', rigLean: 1.2 },
 };
+
+// Hash determinístico FNV-1a de 32 bits para gerar parâmetros únicos e reproduzíveis por golpe/espécie
+function hashString(str) {
+  let h = 0x811c9dc5;
+  const s = String(str || 'default');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function seededRandom(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
 
 function normalizeKey(str) {
   if (!str) return '';
@@ -207,99 +129,178 @@ function normalizeType(rawType) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-function resolveMoveSignature({ moveName, moveType, damageClass, power }) {
+/**
+ * Extrai identidade e anatomia do Pokémon a partir do nome ou do elemento HTML/IMG.
+ */
+function resolveSpeciesProfile(explicitName, spriteEl) {
+  let identifier = normalizeKey(explicitName);
+  let dexId = '';
+
+  if (spriteEl) {
+    const img = spriteEl.tagName === 'IMG' ? spriteEl : spriteEl.querySelector('img');
+    const src = img?.src || '';
+    const alt = normalizeKey(img?.alt || spriteEl.dataset?.pokemon || spriteEl.dataset?.species || '');
+    const idMatch = src.match(/\/(\d+)\.(?:gif|png|webp|svg)/i);
+    if (idMatch) dexId = idMatch[1];
+    if (!identifier) identifier = alt || dexId;
+  }
+
+  if (dexId && SPECIES_ANATOMY_OVERRIDES[dexId]) {
+    return { id: dexId, ...SPECIES_ANATOMY_OVERRIDES[dexId] };
+  }
+  if (identifier && SPECIES_ANATOMY_OVERRIDES[identifier]) {
+    return { id: identifier, ...SPECIES_ANATOMY_OVERRIDES[identifier] };
+  }
+
+  // Perfil anatômico procedural único para qualquer outro Pokémon da Pokédex
+  const rng = seededRandom(hashString(identifier || dexId || 'pokemon'));
+  const bodyTypes = ['biped', 'quadruped', 'avian_dragon', 'floating', 'serpentine'];
+  const bodyType = bodyTypes[Math.floor(rng() * bodyTypes.length)];
+  const hue = Math.floor(rng() * 360);
+
+  return {
+    id: identifier || dexId || 'generic',
+    bodyType,
+    dualEmitter: rng() > 0.78, // ~22% dos Pokémon disparam em ponto duplo (mãos/ombros/olhos)
+    muzzleX: 0.56 + rng() * 0.18,
+    muzzleY: 0.30 + rng() * 0.22,
+    accent: `hsl(${hue}, 90%, 68%)`,
+    rigLean: 0.85 + rng() * 0.45,
+  };
+}
+
+/**
+ * Sintetizador Procedural de Golpes:
+ * Transforma qualquer ataque (PokeAPI move object ou nome/tipo/classe/poder) em um DNA único de:
+ * - chargeStyle  (8 tipos de preparação corporal/elemental)
+ * - engine       (stream | barrage | melee_rush | bolt | field_area | drain_tether | status_aura)
+ * - geometry     (forma, contagem, frequência de onda, espessura, arco, velocidade, rastro)
+ * - impactStyle  (explosão estrela, anéis de choque, estilhaços, cratera, esporos, orbes de dreno)
+ */
+function synthesizeMoveDNA({ moveName, moveType, damageClass, power, priority, drain, meta }, speciesProfile) {
   const key = normalizeKey(moveName);
   const typeUpper = normalizeType(moveType);
-  const dmgClass = normalizeKey(damageClass); // 'physical', 'special', 'status'
-  const numPower = Number(power) || 0;
+  const dmgClass = normalizeKey(damageClass); // 'physical' | 'special' | 'status'
+  const pwr = Math.max(0, Number(power) || 0);
+  const prio = Number(priority) || 0;
+  const drainVal = Number(drain) || Number(meta?.drain) || 0;
 
-  // 1. Verifica assinatura específica do golpe
-  if (key && MOVE_SIGNATURES[key]) {
-    const sig = { ...MOVE_SIGNATURES[key] };
-    if (moveType) sig.type = typeUpper;
-    return sig;
-  }
+  // Seed única combinando o nome exato do ataque + espécie do Pokémon
+  const moveSeed = hashString(key || `${typeUpper}_${dmgClass}_${pwr}`);
+  const comboSeed = hashString(`${key}::${speciesProfile.id}`);
+  const rng = seededRandom(moveSeed);
+  const comboRng = seededRandom(comboSeed);
 
-  // 2. Fallback inteligente por palavras-chave no nome + classe de dano da PokeAPI
-  if (dmgClass === 'status') {
-    const isHeal = /heal|recover|roost|synthesis|rest|wish|drink|cura|descanso/.test(key);
-    const isShield = /protect|detect|guard|barrier|screen|veil|shield|escudo|prote/.test(key);
-    return {
-      style: 'status_buff',
-      type: typeUpper,
-      mode: isHeal ? 'heal' : isShield ? 'shield' : 'buff',
-      duration: 740,
-    };
-  }
+  // 1. Determina o motor base pela semântica do nome + classe de dano da PokeAPI
+  let engine = 'stream';
+  let subMode = 'standard';
 
-  if (/beam|cannon|raio|canhao|laser/.test(key)) {
-    return {
-      style: numPower >= 110 ? 'solar_beam' : 'stream',
-      type: typeUpper,
-      thickness: numPower >= 100 ? 1.25 : 0.9,
-      duration: numPower >= 110 ? 1150 : 860,
-    };
-  }
-
-  if (/claw|slash|cut|blade|scissor|garra|corte|lamina|tail|cauda/.test(key)) {
-    return { style: 'slash_combo', type: typeUpper, slashes: 2, duration: 540 };
-  }
-
-  if (/punch|kick|slam|smash|impact|soco|chute|pancada|crunch|bite|mordida/.test(key)) {
-    return { style: 'multi_punch', type: typeUpper, hits: numPower >= 95 ? 3 : 2, duration: 640 };
-  }
-
-  if (/blitz|tackle|rush|charge|jet|quick|investida|ataque/.test(key)) {
-    return { style: 'blitz_charge', type: typeUpper, recoil: numPower >= 100, duration: 720 };
-  }
-
-  if (/wave|surf|onda|tide|flood/.test(key)) {
-    return { style: 'wave', type: typeUpper, duration: 900 };
-  }
-
-  if (/storm|blizzard|hurricane|wind|tornado|nevasca|furacao|vento/.test(key)) {
-    return { style: 'vortex_storm', type: typeUpper, duration: 920 };
+  if (dmgClass === 'status' || (pwr === 0 && !/seismic|night shade|dragon rage|sonic boom|super fang|endeavor|fissure|sheer cold|horn drill|guillotine/.test(key))) {
+    engine = 'status_aura';
+    if (/heal|recover|roost|synthesis|rest|wish|milk|soft|moonlight|morning|shore|cura|descanso/.test(key)) subMode = 'heal';
+    else if (/protect|detect|guard|barrier|screen|veil|shield|substitute|iron defense|amnesia|escudo|prote/.test(key)) subMode = 'shield';
+    else if (/toxic|spore|powder|wave|glare|hypnosis|sing|will o wisp|leech seed|confuse|screech|growl|leer|tail whip/.test(key)) subMode = 'debuff_target';
+    else subMode = 'buff_self';
+  } else if (drainVal > 0 || /drain|leech|absorb|giga drain|mega drain|oblivion wing|parabolic/.test(key)) {
+    engine = 'drain_tether';
+  } else if (/thunder|bolt|volt|spark|discharge|zap|electro|shock|trovao|choque/.test(key) && dmgClass !== 'physical') {
+    engine = 'bolt';
+    subMode = /thunder$|sky|strike|storm|trovao$/.test(key) ? 'sky_strike' : 'arc_chain';
+  } else if (/quake|earth|fissure|magnitude|bulldoze|stomping|frenzy plant|stone edge|rock slide|meteor|draco|blizzard|hurricane|surf|muddy|wave|psychic|psyshock|pulse|hyper voice|boomburst|uproar|scald|lava|eruption|sandstorm|hail|petal|leaf storm|overheat|fire blast/.test(key)) {
+    engine = 'field_area';
+    if (/fire blast|overheat|blast burn|sacred fire|blue flare/.test(key)) subMode = 'star_nova';
+    else if (/surf|muddy|wave|tide|flood|lava|heat wave|eruption/.test(key)) subMode = 'tsunami_wave';
+    else if (/quake|earth|fissure|magnitude|bulldoze|frenzy/.test(key)) subMode = 'seismic_pillars';
+    else if (/rock|stone|meteor|draco|icicle|avalanche/.test(key)) subMode = 'sky_barrage';
+    else if (/blizzard|hurricane|tornado|twister|whirlpool|fire spin|sand tomb|petal|leaf storm/.test(key)) subMode = 'vortex_cyclone';
+    else subMode = 'harmonic_rings';
+  } else if (/leaf|seed|bullet|swift|star|shuriken|ember|bubble|pin|needle|spike|icicle|rock blast|bonemerang|shadow sneak|water pulse|aura sphere|shadow ball|energy ball|sludge bomb|electro ball|focus blast|gyro ball|weather ball|zap cannon|octazooka|mud bomb|seed bomb|magnet bomb|egg bomb/.test(key)) {
+    engine = 'barrage';
+    subMode = /ball|sphere|bomb|cannon|orb|octazooka|bola|esfera|bomba/.test(key) ? 'heavy_orb' : 'multi_volley';
+  } else if (dmgClass === 'physical' || /claw|slash|cut|blade|scissor|punch|kick|slam|smash|impact|tackle|blitz|rush|charge|jet|quick|bite|crunch|fang|tail|wing|aerial|dive|horn|drill|iron head|zen headbutt|waterfall|aqua tail|flare blitz|brave bird|volt tackle|close combat|outrage|giga impact|extreme speed/.test(key)) {
+    engine = 'melee_rush';
+    if (/claw|slash|cut|blade|scissor|garra|corte|lamina|night slash|air slash|leaf blade|x scissor|psycho cut/.test(key)) subMode = 'slash_marks';
+    else if (/bite|crunch|fang|jaw|mordida|presa/.test(key)) subMode = 'fang_clamp';
+    else if (/punch|kick|combat|outrage|thrash|fury|double slap|bullet punch|mach punch|soco|chute/.test(key)) subMode = 'combo_strikes';
+    else subMode = 'aura_blitz';
+  } else {
+    // Special beams & rays (Flamethrower, Hydro Pump, Solar Beam, Ice Beam, Hyper Beam, Flash Cannon, Signal Beam, etc.)
+    engine = 'stream';
+    subMode = (pwr >= 110 || /solar|hyper|eternabeam|roar of time|prismatic|steel beam/.test(key)) ? 'mega_cannon' : 'elemental_stream';
   }
 
-  if (/quake|earth|fissure|terremoto|terra/.test(key)) {
-    return { style: 'quake', type: typeUpper, duration: 880 };
-  }
+  // 2. Parâmetros únicos derivados do nome do golpe + espécie do Pokémon
+  const powerScale = pwr > 0 ? Math.min(1.65, Math.max(0.65, pwr / 85)) : 1.0;
+  const isFast = prio > 0 || /quick|mach|aqua jet|bullet|ice shard|shadow sneak|vacuum|extreme|feint/.test(key);
+  const isHeavy = pwr >= 100 || subMode === 'mega_cannon' || subMode === 'star_nova';
 
-  if (/rock|stone|meteor|pedra|meteoro/.test(key)) {
-    return { style: 'rock_barrage', type: typeUpper, duration: 800 };
-  }
+  // Estilo de carga único por golpe
+  const chargeStyles = ['spiral_gather', 'ground_crack', 'wing_gust_rings', 'static_arcs', 'aura_flare', 'cannon_prime'];
+  const chargeStyle = speciesProfile.dualEmitter && (engine === 'stream' || engine === 'barrage')
+    ? 'cannon_prime'
+    : chargeStyles[moveSeed % chargeStyles.length];
 
-  if (/ball|sphere|bomb|orb|bola|esfera|bomba/.test(key)) {
-    return { style: 'energy_orb', type: typeUpper, duration: 740 };
-  }
+  // Forma individual de projétil para barrages
+  const shapePoolByType = {
+    FIRE: ['flame_tongue', 'orb', 'star'],
+    FOGO: ['flame_tongue', 'orb', 'star'],
+    WATER: ['bubble_ring', 'water_drop', 'star'],
+    AGUA: ['bubble_ring', 'water_drop', 'star'],
+    GRASS: ['razor_leaf', 'seed_orb', 'petal'],
+    PLANTA: ['razor_leaf', 'seed_orb', 'petal'],
+    ICE: ['crystal_shard', 'snowflake', 'orb'],
+    GELO: ['crystal_shard', 'snowflake', 'orb'],
+    ELECTRIC: ['spark_bolt', 'orb', 'star'],
+    ELETRICO: ['spark_bolt', 'orb', 'star'],
+    ROCK: ['boulder', 'crystal_shard', 'orb'],
+    PEDRA: ['boulder', 'crystal_shard', 'orb'],
+    BUG: ['needle_dart', 'orb', 'crescent'],
+    INSETO: ['needle_dart', 'orb', 'crescent'],
+    FAIRY: ['star', 'heart_orb', 'petal'],
+    FADA: ['star', 'heart_orb', 'petal'],
+  };
+  const shapes = shapePoolByType[typeUpper] || ['orb', 'star', 'crystal_shard', 'crescent'];
+  const projShape = shapes[moveSeed % shapes.length];
 
-  if (/pulse|psychic|wave|pulso|psiquico/.test(key)) {
-    return { style: 'psychic_pulse', type: typeUpper, duration: 780 };
-  }
+  // Contagem, onda e ângulos únicos para cada ataque
+  const projCount = subMode === 'heavy_orb'
+    ? 1
+    : 3 + (moveSeed % 7); // 3 a 9 projéteis distintos por golpe
 
-  if (/leaf|seed|star|swift|bullet|folha|semente|estrela/.test(key)) {
-    return { style: 'multi_proj', type: typeUpper, count: 6, shape: 'orb', duration: 740 };
-  }
+  const waveFreq = 4 + (moveSeed % 12);         // Frequência da ondulação do feixe
+  const waveAmp = (moveSeed % 5) * 0.9;         // Amplitude da ondulação (0 = laser reto, 3.6 = feixe sinuoso)
+  const slashCount = /x scissor|cross/.test(key) ? 2 : (1 + (moveSeed % 4)); // 1 a 4 cortes
+  const slashAngleOffset = ((moveSeed % 60) - 30) * (Math.PI / 180);
+  const strikeCount = subMode === 'combo_strikes' ? (2 + (moveSeed % 4)) : 1;
+  const duration = isFast
+    ? 520 + (moveSeed % 120)
+    : isHeavy
+      ? 1020 + (moveSeed % 220)
+      : 720 + (moveSeed % 220);
 
-  if (/thunder|bolt|volt|spark|trovao|choque/.test(key)) {
-    return { style: numPower >= 100 ? 'bolt_sky' : 'bolt_arc', type: typeUpper, duration: 640 };
-  }
-
-  // 3. Fallback final baseado em Physical vs Special da PokeAPI
-  if (dmgClass === 'physical') {
-    return numPower >= 85
-      ? { style: 'blitz_charge', type: typeUpper, duration: 720 }
-      : { style: 'slash_combo', type: typeUpper, slashes: 2, duration: 540 };
-  }
-
-  // Default Special
-  if (['FIRE', 'FOGO', 'WATER', 'AGUA', 'ICE', 'GELO'].includes(typeUpper)) {
-    return { style: 'stream', type: typeUpper, thickness: 1.0, duration: 860 };
-  }
-  if (['ELECTRIC', 'ELETRICO'].includes(typeUpper)) {
-    return { style: 'bolt_arc', type: typeUpper, duration: 640 };
-  }
-  return { style: 'energy_orb', type: typeUpper, duration: 740 };
+  return {
+    key,
+    type: typeUpper,
+    dmgClass,
+    power: pwr,
+    powerScale,
+    isFast,
+    isHeavy,
+    hasRecoil: /flare blitz|brave bird|volt tackle|double edge|take down|wild charge|wood hammer|head smash|submission/.test(key),
+    engine,
+    subMode,
+    chargeStyle,
+    projShape,
+    projCount,
+    waveFreq,
+    waveAmp,
+    slashCount,
+    slashAngleOffset,
+    isCrossSlash: /x scissor|cross/.test(key),
+    strikeCount,
+    duration,
+    speciesAccentMix: 0.25 + comboRng() * 0.35,
+  };
 }
 
 function injectRigStyles() {
@@ -376,26 +377,26 @@ function injectRigStyles() {
 
 /**
  * Esqueleto Articulado Hierárquico de 3 Juntas (Base -> Tronco -> Cabeça/Asas)
- * Mantém o sprite original da PokeAPI (.png ou .gif) sem trocá-lo por modelos externos.
+ * Adapta a postura e o balanço conforme a anatomia de cada espécie de Pokémon.
  */
 class ArticulatedRig {
-  constructor(spriteEl) {
+  constructor(spriteEl, speciesName = '') {
     if (!spriteEl) throw new Error('ArticulatedRig: spriteEl é obrigatório.');
     injectRigStyles();
 
-    // Se já foi montado neste elemento, reutiliza
     if (spriteEl._pbfxRig) {
+      if (speciesName) spriteEl._pbfxRig.setSpecies(speciesName);
       return spriteEl._pbfxRig;
     }
 
     this.originalEl = spriteEl;
     this.idleAnims = [];
+    this.speciesProfile = resolveSpeciesProfile(speciesName, spriteEl);
 
     const initialSrc = spriteEl.tagName === 'IMG'
       ? spriteEl.src
       : (spriteEl.querySelector('img')?.src || '');
 
-    // Cria container hierárquico substituindo ou envolvendo o img
     const root = document.createElement('div');
     root.className = 'pbfx-rig-root';
     if (spriteEl.id) root.id = spriteEl.id;
@@ -403,14 +404,13 @@ class ArticulatedRig {
       spriteEl.className.split(/\s+/).filter(Boolean).forEach((c) => root.classList.add(c));
     }
 
-    // Preserva dimensões computadas do elemento original
     const cs = window.getComputedStyle(spriteEl);
     if (cs.width && cs.width !== '0px') root.style.width = cs.width;
     if (cs.height && cs.height !== '0px') root.style.height = cs.height;
 
     const placeholder = document.createElement('img');
     placeholder.className = 'pbfx-rig-placeholder';
-    placeholder.alt = spriteEl.alt || '';
+    placeholder.alt = spriteEl.alt || speciesName || '';
     if (initialSrc) placeholder.src = initialSrc;
 
     this.baseEl = document.createElement('div');
@@ -429,7 +429,6 @@ class ArticulatedRig {
     this.torsoEl.appendChild(this.torsoImg);
     this.headEl.appendChild(this.headImg);
 
-    // Hierarquia: Root -> Base -> Torso -> Head
     this.torsoEl.appendChild(this.headEl);
     this.baseEl.appendChild(this.torsoEl);
     root.appendChild(placeholder);
@@ -443,39 +442,89 @@ class ArticulatedRig {
     }
 
     root._pbfxRig = this;
-    if (initialSrc) this.setSprite(initialSrc);
+    if (initialSrc) this.setSprite(initialSrc, speciesName);
     this.startIdle();
   }
 
-  setSprite(src) {
-    if (!src) return;
-    this.placeholder.src = src;
-    this.baseImg.src = src;
-    this.torsoImg.src = src;
-    this.headImg.src = src;
+  setSpecies(speciesName) {
+    this.speciesProfile = resolveSpeciesProfile(speciesName, this.root);
+    this.startIdle();
+  }
+
+  setSprite(src, speciesName = '') {
+    if (src) {
+      this.placeholder.src = src;
+      this.baseImg.src = src;
+      this.torsoImg.src = src;
+      this.headImg.src = src;
+    }
+    if (speciesName) {
+      this.placeholder.alt = speciesName;
+    }
+    this.speciesProfile = resolveSpeciesProfile(speciesName, this.root);
     this.root.style.opacity = '1';
     this.baseEl.style.transform = '';
     this.torsoEl.style.transform = '';
     this.headEl.style.transform = '';
+    this.startIdle();
   }
 
   startIdle() {
     this.stopIdle();
-    const opts = { duration: 1500, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' };
-    this.idleAnims = [
-      this.baseEl.animate(
-        [{ transform: 'scaleY(1) scaleX(1)' }, { transform: 'scaleY(0.97) scaleX(1.02)' }],
-        opts
-      ),
-      this.torsoEl.animate(
-        [{ transform: 'rotate(-1.5deg) translateY(0px)' }, { transform: 'rotate(2deg) translateY(1px)' }],
-        { ...opts, duration: 1500 }
-      ),
-      this.headEl.animate(
-        [{ transform: 'rotate(2deg) scaleX(1)' }, { transform: 'rotate(-3deg) scaleX(1.03)' }],
-        { ...opts, duration: 1500, delay: 140 }
-      ),
-    ];
+    const bt = this.speciesProfile?.bodyType || 'biped';
+
+    if (bt === 'floating' || bt === 'avian_dragon') {
+      // Flutuação / batida de asas no ar
+      const opts = { duration: 1350, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' };
+      this.idleAnims = [
+        this.baseEl.animate(
+          [{ transform: 'translateY(0px) scaleY(1)' }, { transform: 'translateY(-4px) scaleY(0.98)' }],
+          opts
+        ),
+        this.torsoEl.animate(
+          [{ transform: 'rotate(-2deg)' }, { transform: 'rotate(2.5deg)' }],
+          { ...opts, duration: 1350 }
+        ),
+        this.headEl.animate(
+          [{ transform: 'rotate(2.5deg) scaleX(1)' }, { transform: 'rotate(-3.5deg) scaleX(1.04)' }],
+          { ...opts, duration: 1350, delay: 120 }
+        ),
+      ];
+    } else if (bt === 'artillery' || bt === 'quadruped') {
+      // Base pesada e firme no solo
+      const opts = { duration: 1700, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' };
+      this.idleAnims = [
+        this.baseEl.animate(
+          [{ transform: 'scaleY(1) scaleX(1)' }, { transform: 'scaleY(0.96) scaleX(1.03)' }],
+          opts
+        ),
+        this.torsoEl.animate(
+          [{ transform: 'translateY(0px) rotate(-1deg)' }, { transform: 'translateY(2px) rotate(1.2deg)' }],
+          opts
+        ),
+        this.headEl.animate(
+          [{ transform: 'rotate(1deg)' }, { transform: 'rotate(-2deg)' }],
+          { ...opts, delay: 160 }
+        ),
+      ];
+    } else {
+      // Bípede / Serpentino padrão
+      const opts = { duration: 1450, iterations: Infinity, direction: 'alternate', easing: 'ease-in-out' };
+      this.idleAnims = [
+        this.baseEl.animate(
+          [{ transform: 'scaleY(1) scaleX(1)' }, { transform: 'scaleY(0.97) scaleX(1.02)' }],
+          opts
+        ),
+        this.torsoEl.animate(
+          [{ transform: 'rotate(-1.8deg) translateY(0px)' }, { transform: 'rotate(2.2deg) translateY(1px)' }],
+          opts
+        ),
+        this.headEl.animate(
+          [{ transform: 'rotate(2deg) scaleX(1)' }, { transform: 'rotate(-3deg) scaleX(1.03)' }],
+          { ...opts, delay: 140 }
+        ),
+      ];
+    }
   }
 
   stopIdle() {
@@ -483,58 +532,70 @@ class ArticulatedRig {
     this.idleAnims = [];
   }
 
-  async playWindup(dir, glowColor) {
+  async playWindup(dir, glowColor, dna) {
     this.stopIdle();
+    const lean = this.speciesProfile?.rigLean || 1.0;
+    const bt = this.speciesProfile?.bodyType || 'biped';
     if (glowColor) {
-      this.root.style.filter = `drop-shadow(0 0 8px ${glowColor})`;
+      this.root.style.filter = `drop-shadow(0 0 9px ${glowColor})`;
     }
-    const dur = 230;
+
+    const dur = dna.isHeavy ? 320 : 210;
     const easing = 'cubic-bezier(0.22, 1, 0.36, 1)';
+    const liftY = bt === 'floating' || bt === 'avian_dragon' ? -10 : 0;
+
     await Promise.all([
       this.baseEl.animate(
         [
-          { transform: 'translateX(0) scaleY(1) scaleX(1)' },
-          { transform: `translateX(${-8 * dir}px) scaleY(0.90) scaleX(1.06)` },
+          { transform: 'translate(0, 0) scaleY(1) scaleX(1)' },
+          { transform: `translate(${-9 * dir}px, ${liftY}px) scaleY(0.89) scaleX(1.07)` },
         ],
         { duration: dur, fill: 'forwards', easing }
       ).finished,
       this.torsoEl.animate(
-        [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-15 * dir}deg)` }],
+        [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-16 * dir * lean}deg)` }],
         { duration: dur, fill: 'forwards', easing }
       ).finished,
       this.headEl.animate(
-        [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-12 * dir}deg)` }],
+        [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-13 * dir * lean}deg)` }],
         { duration: dur, fill: 'forwards', easing }
       ).finished,
     ]);
   }
 
-  async playBeamPose(dir, duration = 650) {
+  async playBeamPose(dir, duration = 680, dna = {}) {
+    const lean = this.speciesProfile?.rigLean || 1.0;
+    const bt = this.speciesProfile?.bodyType || 'biped';
     const easing = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+    // Artilharia (como Blastoise) absorve recuo para trás ao disparar; Dragões/Bípedes projetam pescoço para frente
+    const baseKick = bt === 'artillery' ? -12 * dir : 10 * dir;
+    const torsoTilt = bt === 'artillery' ? -10 * dir * lean : 18 * dir * lean;
+
     await Promise.all([
       this.baseEl.animate(
         [
-          { transform: `translateX(${-8 * dir}px) scaleY(0.90)` },
-          { transform: `translateX(${10 * dir}px) scaleY(1.03)`, offset: 0.25 },
-          { transform: `translateX(${4 * dir}px) scaleY(1)`, offset: 0.8 },
+          { transform: `translateX(${-9 * dir}px) scaleY(0.89)` },
+          { transform: `translateX(${baseKick}px) scaleY(1.03)`, offset: 0.25 },
+          { transform: `translateX(${baseKick * 0.5}px) scaleY(1)`, offset: 0.8 },
           { transform: 'translateX(0) scaleY(1)' },
         ],
         { duration, easing }
       ).finished,
       this.torsoEl.animate(
         [
-          { transform: `rotate(${-15 * dir}deg)` },
-          { transform: `rotate(${17 * dir}deg)`, offset: 0.25 },
-          { transform: `rotate(${12 * dir}deg)`, offset: 0.8 },
+          { transform: `rotate(${-16 * dir * lean}deg)` },
+          { transform: `rotate(${torsoTilt}deg)`, offset: 0.25 },
+          { transform: `rotate(${torsoTilt * 0.7}deg)`, offset: 0.8 },
           { transform: 'rotate(0deg)' },
         ],
         { duration, easing }
       ).finished,
       this.headEl.animate(
         [
-          { transform: `rotate(${-12 * dir}deg) translateX(0px)` },
-          { transform: `rotate(${10 * dir}deg) translateX(${7 * dir}px) scaleX(1.07)`, offset: 0.25 },
-          { transform: `rotate(${8 * dir}deg) translateX(${4 * dir}px)`, offset: 0.8 },
+          { transform: `rotate(${-13 * dir * lean}deg) translateX(0px)` },
+          { transform: `rotate(${11 * dir * lean}deg) translateX(${8 * dir}px) scaleX(1.08)`, offset: 0.25 },
+          { transform: `rotate(${8 * dir * lean}deg) translateX(${4 * dir}px)`, offset: 0.8 },
           { transform: 'rotate(0deg) translateX(0px) scaleX(1)' },
         ],
         { duration, easing }
@@ -544,32 +605,37 @@ class ArticulatedRig {
     this.startIdle();
   }
 
-  async playDashStrike(dir, distancePx, duration = 560) {
+  async playDashStrike(dir, distancePx, duration = 580, dna = {}) {
+    const lean = this.speciesProfile?.rigLean || 1.0;
+    const bt = this.speciesProfile?.bodyType || 'biped';
     const easing = 'cubic-bezier(0.2, 0.9, 0.25, 1)';
+    const arcY = bt === 'avian_dragon' || bt === 'floating' ? -16 : -4;
+
     await Promise.all([
       this.baseEl.animate(
         [
-          { transform: `translateX(${-8 * dir}px) scaleY(0.90)` },
-          { transform: `translateX(${distancePx * dir}px) scaleY(1.04)`, offset: 0.38 },
-          { transform: `translateX(${(distancePx - 14) * dir}px) scaleY(0.95)`, offset: 0.55 },
-          { transform: 'translateX(0px) scaleY(1)' },
+          { transform: `translate(${-9 * dir}px, 0px) scaleY(0.89)` },
+          { transform: `translate(${distancePx * 0.5 * dir}px, ${arcY}px) scaleY(1.05)`, offset: 0.2 },
+          { transform: `translate(${distancePx * dir}px, 0px) scaleY(1.04)`, offset: 0.42 },
+          { transform: `translate(${(distancePx - 14) * dir}px, 0px) scaleY(0.95)`, offset: 0.6 },
+          { transform: 'translate(0px, 0px) scaleY(1)' },
         ],
         { duration, easing }
       ).finished,
       this.torsoEl.animate(
         [
-          { transform: `rotate(${-15 * dir}deg)` },
-          { transform: `rotate(${25 * dir}deg)`, offset: 0.38 },
-          { transform: `rotate(${-8 * dir}deg)`, offset: 0.65 },
+          { transform: `rotate(${-16 * dir * lean}deg)` },
+          { transform: `rotate(${26 * dir * lean}deg)`, offset: 0.42 },
+          { transform: `rotate(${-9 * dir * lean}deg)`, offset: 0.68 },
           { transform: 'rotate(0deg)' },
         ],
         { duration, easing }
       ).finished,
       this.headEl.animate(
         [
-          { transform: `rotate(${-12 * dir}deg)` },
-          { transform: `rotate(${18 * dir}deg) translateX(${5 * dir}px)`, offset: 0.38 },
-          { transform: `rotate(${-6 * dir}deg)`, offset: 0.65 },
+          { transform: `rotate(${-13 * dir * lean}deg)` },
+          { transform: `rotate(${20 * dir * lean}deg) translateX(${6 * dir}px)`, offset: 0.42 },
+          { transform: `rotate(${-6 * dir * lean}deg)`, offset: 0.68 },
           { transform: 'rotate(0deg) translateX(0px)' },
         ],
         { duration, easing }
@@ -579,14 +645,14 @@ class ArticulatedRig {
     this.startIdle();
   }
 
-  async playBuffPose(duration = 650) {
+  async playBuffPose(duration = 680) {
     const easing = 'ease-in-out';
     await Promise.all([
       this.baseEl.animate(
         [
           { transform: 'scaleY(1)' },
-          { transform: 'scaleY(0.92)', offset: 0.25 },
-          { transform: 'scaleY(1.06) translateY(-6px)', offset: 0.6 },
+          { transform: 'scaleY(0.91)', offset: 0.25 },
+          { transform: 'scaleY(1.07) translateY(-7px)', offset: 0.6 },
           { transform: 'scaleY(1) translateY(0px)' },
         ],
         { duration, easing }
@@ -594,8 +660,8 @@ class ArticulatedRig {
       this.torsoEl.animate(
         [
           { transform: 'rotate(0deg)' },
-          { transform: 'rotate(-8deg)', offset: 0.4 },
-          { transform: 'rotate(6deg)', offset: 0.7 },
+          { transform: 'rotate(-9deg)', offset: 0.4 },
+          { transform: 'rotate(7deg)', offset: 0.7 },
           { transform: 'rotate(0deg)' },
         ],
         { duration, easing }
@@ -603,7 +669,7 @@ class ArticulatedRig {
       this.headEl.animate(
         [
           { transform: 'rotate(0deg)' },
-          { transform: 'rotate(-14deg)', offset: 0.5 },
+          { transform: 'rotate(-15deg)', offset: 0.5 },
           { transform: 'rotate(0deg)' },
         ],
         { duration, easing }
@@ -615,7 +681,7 @@ class ArticulatedRig {
 
   async playHit(dir) {
     this.stopIdle();
-    const dur = 400;
+    const dur = 410;
     await Promise.all([
       this.root.animate(
         [
@@ -629,7 +695,7 @@ class ArticulatedRig {
       this.baseEl.animate(
         [
           { transform: 'translateX(0)' },
-          { transform: `translateX(${14 * dir}px) scaleY(0.93)`, offset: 0.25 },
+          { transform: `translateX(${15 * dir}px) scaleY(0.92)`, offset: 0.25 },
           { transform: `translateX(${-6 * dir}px)`, offset: 0.55 },
           { transform: 'translateX(0) scaleY(1)' },
         ],
@@ -638,7 +704,7 @@ class ArticulatedRig {
       this.torsoEl.animate(
         [
           { transform: 'rotate(0deg)' },
-          { transform: `rotate(${20 * dir}deg)`, offset: 0.25 },
+          { transform: `rotate(${21 * dir}deg)`, offset: 0.25 },
           { transform: `rotate(${-6 * dir}deg)`, offset: 0.6 },
           { transform: 'rotate(0deg)' },
         ],
@@ -647,7 +713,7 @@ class ArticulatedRig {
       this.headEl.animate(
         [
           { transform: 'rotate(0deg)' },
-          { transform: `rotate(${24 * dir}deg)`, offset: 0.25 },
+          { transform: `rotate(${25 * dir}deg)`, offset: 0.25 },
           { transform: `rotate(${-8 * dir}deg)`, offset: 0.65 },
           { transform: 'rotate(0deg)' },
         ],
@@ -725,19 +791,19 @@ class BattleAnimator {
     this.ctx.imageSmoothingEnabled = false;
   }
 
-  /**
-   * Cria ou recupera o Rig Articulado de um sprite da arena.
-   */
-  attachRig(spriteEl) {
+  attachRig(spriteEl, speciesName = '') {
     if (!spriteEl) return null;
-    if (spriteEl._pbfxRig) return spriteEl._pbfxRig;
+    if (spriteEl._pbfxRig) {
+      if (speciesName) spriteEl._pbfxRig.setSpecies(speciesName);
+      return spriteEl._pbfxRig;
+    }
     if (this.rigs.has(spriteEl)) return this.rigs.get(spriteEl);
-    const rig = new ArticulatedRig(spriteEl);
+    const rig = new ArticulatedRig(spriteEl, speciesName);
     this.rigs.set(spriteEl, rig);
     return rig;
   }
 
-  _getAnchorPoints(attackerRoot, targetRoot) {
+  _getAnchorPoints(attackerRoot, targetRoot, speciesProfile) {
     const arenaRect = this.arenaEl.getBoundingClientRect();
     const attRect = attackerRoot.getBoundingClientRect();
     const tgtRect = targetRoot.getBoundingClientRect();
@@ -745,8 +811,12 @@ class BattleAnimator {
     const isLeftToRight = attRect.left < tgtRect.left;
     const dir = isLeftToRight ? 1 : -1;
 
-    const startX = attRect.left + attRect.width * (isLeftToRight ? 0.68 : 0.32) - arenaRect.left;
-    const startY = attRect.top + attRect.height * 0.42 - arenaRect.top;
+    const mx = speciesProfile?.muzzleX ?? 0.65;
+    const my = speciesProfile?.muzzleY ?? 0.40;
+    const relX = isLeftToRight ? mx : (1 - mx);
+
+    const startX = attRect.left + attRect.width * relX - arenaRect.left;
+    const startY = attRect.top + attRect.height * my - arenaRect.top;
     const endX = tgtRect.left + tgtRect.width * 0.5 - arenaRect.left;
     const endY = tgtRect.top + tgtRect.height * 0.52 - arenaRect.top;
     const floorY = Math.max(attRect.bottom, tgtRect.bottom) - arenaRect.top - 4;
@@ -761,133 +831,125 @@ class BattleAnimator {
   }
 
   /**
-   * Executa a animação individualizada do golpe com esqueleto articulado + efeito visual próprio.
+   * Executa a animação única do ataque combinando o DNA do Golpe + Anatomia do Pokémon.
    *
    * @param {Object} params
    * @param {HTMLElement} params.attackerEl Sprite ou Rig do atacante
    * @param {HTMLElement} params.targetEl Sprite ou Rig do defensor
-   * @param {string} [params.moveName] Nome do ataque (ex: 'flamethrower', 'fire-blast', 'surf', 'solar-beam', 'dragon-claw')
-   * @param {string} [params.moveType='NORMAL'] Tipo elemental ('FOGO', 'FIRE', 'AGUA', 'WATER', etc.)
-   * @param {string} [params.damageClass] 'physical' | 'special' | 'status' (vindo da PokeAPI)
-   * @param {number} [params.power] Poder base do golpe (vindo da PokeAPI)
-   * @param {Function} [params.onImpact] Callback sincronizado para aplicar dano na barra de HP
+   * @param {string} [params.attackerName] Nome ou ID da espécie atacante (opcional; detecta automaticamente se omitido)
+   * @param {string} [params.targetName] Nome ou ID da espécie defensora
+   * @param {string} [params.moveName] Slug ou nome do golpe (ex: 'flamethrower', 'fire-blast', 'surf', 'dragon-claw')
+   * @param {string} [params.moveType='NORMAL'] Tipo do ataque ('FIRE', 'FOGO', 'WATER', 'AGUA', etc.)
+   * @param {string} [params.damageClass] 'physical' | 'special' | 'status'
+   * @param {number} [params.power] Poder base do golpe
+   * @param {number} [params.priority] Prioridade do golpe
+   * @param {number} [params.drain] Porcentagem de dreno/recuo
+   * @param {Object} [params.meta] Objeto `meta` completo da PokeAPI (opcional)
+   * @param {Function} [params.onImpact] Callback sincronizado para reduzir barra de HP no impacto
    */
-  async playAttack({ attackerEl, targetEl, moveName = '', moveType = 'NORMAL', damageClass = '', power = 0, onImpact }) {
+  async playAttack({
+    attackerEl,
+    targetEl,
+    attackerName = '',
+    targetName = '',
+    moveName = '',
+    moveType = 'NORMAL',
+    damageClass = '',
+    power = 0,
+    priority = 0,
+    drain = 0,
+    meta = null,
+    onImpact,
+  }) {
     if (!attackerEl || !targetEl) return;
     this.resize();
 
-    const attRig = this.attachRig(attackerEl);
-    const tgtRig = this.attachRig(targetEl);
+    const attRig = this.attachRig(attackerEl, attackerName);
+    const tgtRig = this.attachRig(targetEl, targetName);
+    const species = attRig.speciesProfile;
 
-    const sig = resolveMoveSignature({ moveName, moveType, damageClass, power });
-    const palette = TYPE_PALETTES[sig.type] || TYPE_PALETTES[normalizeType(moveType)] || TYPE_PALETTES.NORMAL;
-    const { startX, startY, endX, endY, floorY, dir } = this._getAnchorPoints(attRig.root, tgtRig.root);
+    const dna = synthesizeMoveDNA(
+      { moveName, moveType, damageClass, power, priority, drain, meta },
+      species
+    );
+
+    const basePalette = TYPE_PALETTES[dna.type] || TYPE_PALETTES[normalizeType(moveType)] || TYPE_PALETTES.NORMAL;
+    // Mistura sutil da cor assinatura da espécie do Pokémon na paleta
+    const palette = {
+      ...basePalette,
+      speciesAccent: species.accent || basePalette.mid,
+    };
+
+    const anchors = this._getAnchorPoints(attRig.root, tgtRig.root, species);
+    const { startX, startY, endX, endY, floorY, dir } = anchors;
 
     const triggerHit = () => {
       this._shakeArena();
       tgtRig.playHit(dir);
       if (typeof onImpact === 'function') onImpact();
+      if (dna.hasRecoil) {
+        setTimeout(() => attRig.playHit(-dir), 180);
+      }
     };
 
-    // Golpe de Status / Buff / Cura (age no próprio usuário)
-    if (sig.style === 'status_buff') {
-      attRig.playBuffPose(sig.duration);
-      await this._fxStatusBuff(
-        (attRig.root.getBoundingClientRect().left + attRig.root.getBoundingClientRect().width / 2) - this.arenaEl.getBoundingClientRect().left,
-        floorY,
-        palette,
-        sig.mode,
-        sig.duration
-      );
+    // 1. Golpes de Status / Buff / Cura / Debuff
+    if (dna.engine === 'status_aura') {
+      attRig.playBuffPose(dna.duration);
+      const attCenter = (attRig.root.getBoundingClientRect().left + attRig.root.getBoundingClientRect().width / 2) - this.arenaEl.getBoundingClientRect().left;
+      const targetX = dna.subMode === 'debuff_target' ? endX : attCenter;
+      await this._renderStatusAura(targetX, floorY, palette, dna);
+      if (dna.subMode === 'debuff_target') tgtRig.playHit(dir);
       if (typeof onImpact === 'function') onImpact();
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       return;
     }
 
-    // Etapa 1: Carga Articulada (exceto ataques ultra rápidos)
-    if (!sig.fast) {
-      await attRig.playWindup(dir, palette.mid);
+    // 2. Fase de Carga Única (Articulada + Partículas de Carga)
+    if (!dna.isFast) {
+      await Promise.all([
+        attRig.playWindup(dir, palette.mid, dna),
+        this._renderChargeFX(startX, startY, floorY, palette, dna, species),
+      ]);
     }
 
-    // Etapa 2: Disparo ou Investida Articulada + Efeito Específico do Golpe
+    // 3. Fase de Execução Única por Golpe + Espécie
     const totalDistPx = Math.abs(endX - startX);
-    const dashDist = Math.max(40, totalDistPx - 45);
+    const dashDist = Math.max(42, totalDistPx - 44);
 
-    switch (sig.style) {
-      case 'fire_blast':
-        attRig.playBeamPose(dir, sig.duration * 0.75);
-        await this._fxFireBlast(startX, startY, endX, endY, palette, triggerHit, sig.duration);
+    switch (dna.engine) {
+      case 'drain_tether':
+        attRig.playBeamPose(dir, dna.duration, dna);
+        await this._renderDrainTether(startX, startY, endX, endY, palette, triggerHit, dna);
         break;
 
-      case 'solar_beam':
-        attRig.playBeamPose(dir, sig.duration * 0.85);
-        await this._fxSolarBeam(startX, startY, endX, endY, palette, triggerHit, sig.duration);
+      case 'bolt':
+        attRig.playBeamPose(dir, dna.duration * 0.85, dna);
+        await this._renderBolt(startX, startY, endX, endY, palette, triggerHit, dna, species);
         break;
 
-      case 'wave':
-        attRig.playBeamPose(dir, sig.duration * 0.75);
-        await this._fxWave(startX, floorY, endX, palette, triggerHit, sig.duration);
+      case 'field_area':
+        if (dna.subMode === 'seismic_pillars') {
+          attRig.playDashStrike(dir, 26, dna.duration * 0.75, dna);
+        } else {
+          attRig.playBeamPose(dir, dna.duration * 0.85, dna);
+        }
+        await this._renderFieldArea(startX, startY, endX, endY, floorY, dir, palette, triggerHit, dna);
         break;
 
-      case 'multi_proj':
-        attRig.playBeamPose(dir, sig.duration * 0.75);
-        await this._fxMultiProjectile(startX, startY, endX, endY, palette, triggerHit, sig);
+      case 'barrage':
+        attRig.playBeamPose(dir, dna.duration * 0.85, dna);
+        await this._renderBarrage(startX, startY, endX, endY, palette, triggerHit, dna, species);
         break;
 
-      case 'blitz_charge':
-        attRig.playDashStrike(dir, dashDist, sig.duration);
-        await this._fxBlitzCharge(startX, startY, endX, endY, dir, palette, triggerHit, sig);
-        break;
-
-      case 'slash_combo':
-        attRig.playDashStrike(dir, Math.min(dashDist, 75), sig.duration);
-        await this._fxSlashCombo(endX, endY, dir, palette, triggerHit, sig);
-        break;
-
-      case 'multi_punch':
-        attRig.playDashStrike(dir, Math.min(dashDist, 85), sig.duration);
-        await this._fxMultiPunch(endX, endY, dir, palette, triggerHit, sig);
-        break;
-
-      case 'bolt_sky':
-        attRig.playBeamPose(dir, sig.duration * 0.7);
-        await this._fxBoltSky(endX, endY, palette, triggerHit, sig.duration);
-        break;
-
-      case 'bolt_arc':
-        attRig.playBeamPose(dir, sig.duration * 0.7);
-        await this._fxBoltArc(startX, startY, endX, endY, palette, triggerHit, sig.duration);
-        break;
-
-      case 'quake':
-        attRig.playDashStrike(dir, 28, sig.duration * 0.65);
-        await this._fxQuake(startX, floorY, endX, palette, triggerHit, sig.duration);
-        break;
-
-      case 'rock_barrage':
-        attRig.playBeamPose(dir, sig.duration * 0.7);
-        await this._fxRockBarrage(endX, endY, floorY, palette, triggerHit, sig.duration);
-        break;
-
-      case 'psychic_pulse':
-        attRig.playBeamPose(dir, sig.duration * 0.75);
-        await this._fxPsychicPulse(startX, startY, endX, endY, palette, triggerHit, sig.duration);
-        break;
-
-      case 'energy_orb':
-        attRig.playBeamPose(dir, sig.duration * 0.72);
-        await this._fxEnergyOrb(startX, startY, endX, endY, palette, triggerHit, sig.duration);
-        break;
-
-      case 'vortex_storm':
-        attRig.playBeamPose(dir, sig.duration * 0.75);
-        await this._fxVortexStorm(endX, endY, floorY, palette, triggerHit, sig.duration);
+      case 'melee_rush':
+        attRig.playDashStrike(dir, dashDist, dna.duration, dna);
+        await this._renderMeleeRush(startX, startY, endX, endY, dir, palette, triggerHit, dna);
         break;
 
       case 'stream':
       default:
-        attRig.playBeamPose(dir, sig.duration * 0.78);
-        await this._fxStream(startX, startY, endX, endY, palette, triggerHit, sig);
+        attRig.playBeamPose(dir, dna.duration * 0.9, dna);
+        await this._renderParametricStream(startX, startY, endX, endY, palette, triggerHit, dna, species);
         break;
     }
 
@@ -901,18 +963,72 @@ class BattleAnimator {
     await rig.playKO(isLeft ? 1 : -1);
   }
 
-  // ==================== 14 MOTORES VISUAIS DE ATAQUE ====================
+  // ==================== MOTOR DE CARGA ÚNICA ====================
+  _renderChargeFX(startX, startY, floorY, palette, dna, species) {
+    return new Promise((resolve) => {
+      const ctx = this.ctx, s = this.pixelScale;
+      const sx = Math.round(startX / s), sy = Math.round(startY / s), fy = Math.round(floorY / s);
+      const dur = dna.isHeavy ? 300 : 190;
+      const t0 = performance.now();
 
-  // 1. STREAM (Flamethrower, Hydro Pump, Ice Beam, Water Gun)
-  _fxStream(startX, startY, endX, endY, palette, onHit, sig) {
+      const frame = (now) => {
+        const p = Math.min((now - t0) / dur, 1);
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        if (dna.chargeStyle === 'cannon_prime' || species.dualEmitter) {
+          // Anéis de energia nos dois canhões/ombros
+          [-4, 4].forEach((oy) => {
+            const r = Math.max(1, Math.round((1 - p) * 9 + 2));
+            ctx.strokeStyle = palette.speciesAccent;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(sx, sy + oy, r, 0, Math.PI * 2);
+            ctx.stroke();
+          });
+        } else if (dna.chargeStyle === 'ground_crack') {
+          ctx.strokeStyle = palette.mid;
+          ctx.lineWidth = 1;
+          const spread = Math.round(p * 16);
+          ctx.beginPath();
+          ctx.moveTo(sx - spread, fy);
+          ctx.lineTo(sx + spread, fy);
+          ctx.stroke();
+        } else if (dna.chargeStyle === 'wing_gust_rings') {
+          const r = Math.round(4 + p * 14);
+          ctx.strokeStyle = palette.core;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          // Espiral de partículas convergindo com a cor da espécie + tipo
+          for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 * i) / 8 + p * 6;
+            const d = (1 - p) * 18;
+            ctx.fillStyle = i % 2 === 0 ? palette.mid : palette.speciesAccent;
+            ctx.fillRect(Math.round(sx + Math.cos(a) * d), Math.round(sy + Math.sin(a) * d), 2, 2);
+          }
+        }
+
+        if (p < 1) requestAnimationFrame(frame);
+        else resolve();
+      };
+      requestAnimationFrame(frame);
+    });
+  }
+
+  // ==================== 1. PARAMETRIC STREAM (Jatos & Mega Canhões Únicos) ====================
+  _renderParametricStream(startX, startY, endX, endY, palette, onHit, dna, species) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
       const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
       const angle = Math.atan2(ey - sy, ex - sx);
+      const perpX = -Math.sin(angle), perpY = Math.cos(angle);
       const dist = Math.hypot(ex - sx, ey - sy);
-      const thick = sig.thickness || 1.0;
+      const emitters = species.dualEmitter ? [-4.5, 4.5] : [0];
+      const thick = dna.powerScale * (species.dualEmitter ? 0.72 : 1.0);
       const blobs = [], sparks = [];
-      const duration = sig.duration || 900;
+      const duration = dna.duration;
       const t0 = performance.now();
       let hit = false;
 
@@ -920,39 +1036,46 @@ class BattleAnimator {
         { color: palette.outline, scale: 1.38, minLife: 0.05 },
         { color: palette.outer,   scale: 1.12, minLife: 0.15 },
         { color: palette.mid,     scale: 0.84, minLife: 0.30 },
-        { color: palette.core,    scale: 0.48, minLife: 0.50 },
+        { color: palette.core,    scale: 0.46, minLife: 0.50 },
       ];
 
       const frame = (now) => {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        if (p < 0.62) {
-          for (let i = 0; i < 4; i++) {
-            const speed = Math.max(2.6, dist / 19) * (0.9 + Math.random() * 0.25);
-            const spread = (Math.random() - 0.5) * 0.12 * thick;
-            blobs.push({
-              x: sx, y: sy,
-              vx: Math.cos(angle + spread) * speed,
-              vy: Math.sin(angle + spread) * speed,
-              r: (2.5 + Math.random() * 2) * thick,
-              grow: 0.34 * thick,
-              life: 1,
-              decay: 0.038,
-            });
+        if (p < 0.64) {
+          for (const emOffset of emitters) {
+            const waveOffset = Math.sin(p * Math.PI * dna.waveFreq + emOffset) * dna.waveAmp;
+            const ox = sx + perpX * (emOffset + waveOffset);
+            const oy = sy + perpY * (emOffset + waveOffset);
+            const countPerFrame = dna.subMode === 'mega_cannon' ? 4 : 3;
+
+            for (let i = 0; i < countPerFrame; i++) {
+              const speed = Math.max(2.7, dist / 18) * (0.9 + Math.random() * 0.22);
+              const spread = dna.subMode === 'mega_cannon' ? 0 : (Math.random() - 0.5) * 0.11;
+              blobs.push({
+                x: ox, y: oy,
+                vx: Math.cos(angle + spread) * speed,
+                vy: Math.sin(angle + spread) * speed,
+                r: (dna.subMode === 'mega_cannon' ? 4.2 : 2.6 + Math.random() * 1.8) * thick,
+                grow: dna.subMode === 'mega_cannon' ? 0.12 : 0.32 * thick,
+                life: 1,
+                decay: 0.036,
+              });
+            }
           }
         }
 
         for (let i = blobs.length - 1; i >= 0; i--) {
           const b = blobs[i];
           b.x += b.vx; b.y += b.vy; b.r += b.grow; b.life -= b.decay;
-          if (!hit && Math.hypot(b.x - sx, b.y - sy) >= dist * 0.85) {
+          if (!hit && Math.hypot(b.x - sx, b.y - sy) >= dist * 0.84) {
             hit = true;
             onHit();
-            for (let k = 0; k < 18; k++) {
-              const a = Math.random() * Math.PI * 2, sp = 0.7 + Math.random() * 2.5;
+            for (let k = 0; k < 20; k++) {
+              const a = Math.random() * Math.PI * 2, sp = 0.7 + Math.random() * 2.6;
               blobs.push({ x: ex + (Math.random() - 0.5) * 8, y: ey + (Math.random() - 0.5) * 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 5 * thick, grow: 0.12, life: 1, decay: 0.045 });
-              sparks.push({ x: ex, y: ey, vx: Math.cos(a) * sp * 2.2, vy: Math.sin(a) * sp * 2.2, life: 1 });
+              sparks.push({ x: ex, y: ey, vx: Math.cos(a) * sp * 2.3, vy: Math.sin(a) * sp * 2.3, life: 1, accent: k % 3 === 0 });
             }
           }
           if (b.life <= 0) blobs.splice(i, 1);
@@ -968,10 +1091,10 @@ class BattleAnimator {
           }
         }
 
-        ctx.fillStyle = palette.mid;
         for (let i = sparks.length - 1; i >= 0; i--) {
           const sp = sparks[i];
           sp.x += sp.vx; sp.y += sp.vy; sp.life -= 0.045;
+          ctx.fillStyle = sp.accent ? palette.speciesAccent : palette.mid;
           ctx.fillRect(Math.round(sp.x), Math.round(sp.y), 1, 1);
           if (sp.life <= 0) sparks.splice(i, 1);
         }
@@ -983,217 +1106,85 @@ class BattleAnimator {
     });
   }
 
-  // 2. FIRE BLAST (Esfera viajando + Explosão em Estrela de 5 Pontas / Kanji 大)
-  _fxFireBlast(startX, startY, endX, endY, palette, onHit, duration = 1050) {
+  // ==================== 2. PARAMETRIC BARRAGE (Orbes Pesadas & Rajadas de Múltiplos Formatos) ====================
+  _renderBarrage(startX, startY, endX, endY, palette, onHit, dna, species) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
       const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
-      const t0 = performance.now();
-      let hit = false;
-
-      // 5 pontas da estrela / 大
-      const starAngles = [-Math.PI / 2, -Math.PI / 2 + 0.72, -Math.PI / 2 - 0.72, Math.PI / 2 + 0.52, Math.PI / 2 - 0.52];
-
-      const drawBlob = (x, y, r) => {
-        ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(Math.round(x), Math.round(y), Math.round(r * 1.35), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(Math.round(x), Math.round(y), Math.round(r * 1.1), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.arc(Math.round(x), Math.round(y), Math.round(r * 0.75), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(Math.round(x), Math.round(y), Math.max(1, Math.round(r * 0.4)), 0, Math.PI * 2); ctx.fill();
-      };
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        if (p < 0.35) {
-          const t = p / 0.35;
-          const cx = sx + (ex - sx) * t;
-          const cy = sy + (ey - sy) * t;
-          drawBlob(cx, cy, 7 + Math.sin(t * 20) * 2);
-        } else {
-          if (!hit) { hit = true; onHit(); }
-          const bt = (p - 0.35) / 0.65;
-          const fade = bt > 0.7 ? (1 - bt) / 0.3 : 1;
-          const armLen = Math.min(26, bt * 45);
-          drawBlob(ex, ey, 9 * fade);
-          for (const a of starAngles) {
-            for (let step = 4; step <= armLen; step += 4) {
-              const bx = ex + Math.cos(a) * step;
-              const by = ey + Math.sin(a) * step;
-              drawBlob(bx, by, (6 - step * 0.1) * fade);
-            }
-          }
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 3. SOLAR BEAM / HYPER BEAM (Carga de partículas convergindo + Mega Canhão de Luz)
-  _fxSolarBeam(startX, startY, endX, endY, palette, onHit, duration = 1250) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
-      const angle = Math.atan2(ey - sy, ex - sx);
-      const t0 = performance.now();
-      let hit = false;
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        if (p < 0.42) {
-          // Fase de absorção de luz
-          const ct = p / 0.42;
-          const coreR = Math.round(2 + ct * 9);
-          for (let i = 0; i < 10; i++) {
-            const a = (Math.PI * 2 * i) / 10 + ct * 5;
-            const dist = (1 - ct) * 26;
-            ctx.fillStyle = palette.mid;
-            ctx.fillRect(Math.round(sx + Math.cos(a) * dist), Math.round(sy + Math.sin(a) * dist), 2, 2);
-          }
-          ctx.fillStyle = palette.outer; ctx.beginPath(); ctx.arc(Math.round(sx), Math.round(sy), coreR + 2, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.core;  ctx.beginPath(); ctx.arc(Math.round(sx), Math.round(sy), coreR, 0, Math.PI * 2); ctx.fill();
-        } else {
-          // Fase do Mega Feixe
-          if (!hit) { hit = true; onHit(); }
-          const bt = (p - 0.42) / 0.58;
-          const pulse = (bt < 0.75 ? 1 : (1 - bt) / 0.25) * (1 + Math.sin(bt * 45) * 0.18);
-          const farX = sx + Math.cos(angle) * 240;
-          const farY = sy + Math.sin(angle) * 240;
-
-          const drawBeamLine = (w, color) => {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = Math.max(1, Math.round(w * pulse));
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(Math.round(sx), Math.round(sy));
-            ctx.lineTo(Math.round(farX), Math.round(farY));
-            ctx.stroke();
-          };
-          drawBeamLine(16, palette.outline);
-          drawBeamLine(12, palette.outer);
-          drawBeamLine(7, palette.mid);
-          drawBeamLine(3, palette.core);
-
-          // Anéis de choque ao longo do feixe
-          for (let r = 1; r <= 3; r++) {
-            const distAlong = ((bt * 120 + r * 30) % 90);
-            const rx = sx + Math.cos(angle) * distAlong;
-            const ry = sy + Math.sin(angle) * distAlong;
-            ctx.strokeStyle = palette.core;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(Math.round(rx), Math.round(ry), Math.round(8 * pulse), 0, Math.PI * 2);
-            ctx.stroke();
-          }
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 4. WAVE (Surf, Muddy Water, Heat Wave - Onda gigante varrendo a arena)
-  _fxWave(startX, floorY, endX, palette, onHit, duration = 950) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, ex = endX / s, fy = floorY / s;
-      const dir = ex >= sx ? 1 : -1;
-      const t0 = performance.now();
-      let hit = false;
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        const wx = sx + (ex - sx) * Math.min(p / 0.72, 1.15);
-        const crestH = Math.sin(Math.min(p / 0.85, 1) * Math.PI) * 34;
-
-        if (!hit && Math.abs(wx - ex) < 12) {
-          hit = true;
-          onHit();
-        }
-
-        if (crestH > 1) {
-          for (let i = -3; i <= 3; i++) {
-            const bx = wx - i * 5 * dir;
-            const by = fy - crestH * (1 - Math.abs(i) * 0.16);
-            const r = Math.max(3, Math.round(8 - Math.abs(i)));
-
-            ctx.fillStyle = palette.outline;
-            ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(by), r + 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.outer;
-            ctx.fillRect(Math.round(bx - r), Math.round(by), r * 2, Math.max(2, Math.round(fy - by)));
-            ctx.fillStyle = palette.mid;
-            ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(by), r, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.core;
-            ctx.fillRect(Math.round(bx - 2), Math.round(by - r), 4, 2);
-          }
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 5. MULTI PROJECTILE (Razor Leaf, Ember, Swift, Water Shuriken, Bubble Beam)
-  _fxMultiProjectile(startX, startY, endX, endY, palette, onHit, sig) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
-      const count = sig.count || 6;
-      const duration = sig.duration || 760;
+      const count = dna.projCount;
+      const duration = dna.duration;
       const t0 = performance.now();
       let hit = false;
 
       const items = Array.from({ length: count }, (_, idx) => ({
-        delay: (idx / count) * 0.42,
-        arcY: (idx - count / 2) * 5,
+        delay: count === 1 ? 0 : (idx / count) * 0.45,
+        arcY: count === 1 ? -6 : (idx - (count - 1) / 2) * (4 + (idx % 2) * 2),
+        emitterShift: species.dualEmitter ? (idx % 2 === 0 ? -4 : 4) : 0,
         hitDone: false,
       }));
+
+      const drawShape = (x, y, r, rot) => {
+        ctx.save();
+        ctx.translate(Math.round(x), Math.round(y));
+        ctx.rotate(rot);
+
+        if (dna.projShape === 'razor_leaf' || dna.projShape === 'petal') {
+          ctx.fillStyle = palette.outline; ctx.fillRect(-5, -2, 10, 4);
+          ctx.fillStyle = palette.mid;     ctx.fillRect(-4, -1, 8, 2);
+          ctx.fillStyle = palette.core;    ctx.fillRect(-1, -1, 3, 1);
+        } else if (dna.projShape === 'star') {
+          ctx.fillStyle = palette.outline; ctx.fillRect(-4, -1, 8, 2); ctx.fillRect(-1, -4, 2, 8);
+          ctx.fillStyle = palette.mid;     ctx.fillRect(-3, -1, 6, 2); ctx.fillRect(-1, -3, 2, 6);
+          ctx.fillStyle = palette.core;    ctx.fillRect(-1, -1, 2, 2);
+        } else if (dna.projShape === 'crystal_shard' || dna.projShape === 'needle_dart') {
+          ctx.fillStyle = palette.outline;
+          ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(0, -3); ctx.lineTo(6, 0); ctx.lineTo(0, 3); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = palette.core;
+          ctx.fillRect(-2, -1, 4, 2);
+        } else if (dna.projShape === 'bubble_ring') {
+          ctx.strokeStyle = palette.outer; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = palette.core; ctx.fillRect(-1, -1, 2, 2);
+        } else {
+          // Orbe densa em 4 camadas (Shadow Ball, Aura Sphere, Energy Ball, Sludge Bomb)
+          ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(0, 0, Math.round(r * 1.3), 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(0, 0, Math.round(r), 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.arc(0, 0, Math.max(1, Math.round(r * 0.65)), 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(0, 0, Math.max(1, Math.round(r * 0.35)), 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+      };
 
       const frame = (now) => {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
         for (const it of items) {
-          const local = (p - it.delay) / 0.55;
-          if (local < 0 || local > 1.15) continue;
+          const span = count === 1 ? 0.68 : 0.52;
+          const local = (p - it.delay) / span;
+          if (local < 0 || local > 1.3) continue;
           const t = Math.min(local, 1);
-          const x = sx + (ex - sx) * t;
-          const y = sy + (ey - sy) * t + Math.sin(t * Math.PI) * it.arcY;
+          const ease = count === 1 ? t * t : t;
+          const x = sx + (ex - sx) * ease;
+          const y = sy + it.emitterShift + (ey - sy) * ease + Math.sin(t * Math.PI) * it.arcY;
+          const r = count === 1 ? Math.round(8 * dna.powerScale) : 4;
 
           if (t >= 0.92 && !it.hitDone) {
             it.hitDone = true;
             if (!hit) { hit = true; onHit(); }
-            ctx.fillStyle = palette.core;
-            ctx.fillRect(Math.round(ex - 3), Math.round(ey - 3), 6, 6);
           }
 
-          ctx.save();
-          ctx.translate(Math.round(x), Math.round(y));
-          ctx.rotate(t * 14);
-          if (sig.shape === 'leaf') {
-            ctx.fillStyle = palette.outline; ctx.fillRect(-4, -2, 8, 4);
-            ctx.fillStyle = palette.mid;     ctx.fillRect(-3, -1, 6, 2);
-            ctx.fillStyle = palette.core;    ctx.fillRect(-1, -1, 3, 1);
-          } else if (sig.shape === 'star') {
-            ctx.fillStyle = palette.outer; ctx.fillRect(-3, -1, 6, 2); ctx.fillRect(-1, -3, 2, 6);
-            ctx.fillStyle = palette.core;  ctx.fillRect(-1, -1, 2, 2);
+          if (local <= 1) {
+            drawShape(x, y, r, t * (8 + dna.waveFreq));
           } else {
-            ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.core;    ctx.fillRect(-1, -1, 2, 2);
+            // Anel de impacto individual
+            const exp = (local - 1) / 0.3;
+            ctx.strokeStyle = palette.speciesAccent;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(Math.round(ex), Math.round(ey), Math.round(r + exp * 12), 0, Math.PI * 2);
+            ctx.stroke();
           }
-          ctx.restore();
         }
 
         if (p < 1) requestAnimationFrame(frame);
@@ -1203,12 +1194,12 @@ class BattleAnimator {
     });
   }
 
-  // 6. BLITZ CHARGE (Flare Blitz, Brave Bird, Volt Tackle, Quick Attack)
-  _fxBlitzCharge(startX, startY, endX, endY, dir, palette, onHit, sig) {
+  // ==================== 3. MELEE RUSH (Cortes, Mordidas, Combos de Socos & Investidas) ====================
+  _renderMeleeRush(startX, startY, endX, endY, dir, palette, onHit, dna) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
-      const duration = sig.duration || 760;
+      const sx = startX / s, sy = startY / s, ex = Math.round(endX / s), ey = Math.round(endY / s);
+      const duration = dna.duration;
       const t0 = performance.now();
       let hit = false;
 
@@ -1216,28 +1207,81 @@ class BattleAnimator {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        const dash = Math.min(p / 0.45, 1);
-        const cx = sx + (ex - sx) * dash;
-        const cy = sy + (ey - sy) * dash;
-
-        if (dash < 1) {
-          // Aura envolvente no atacante em movimento
-          for (let i = 0; i < 6; i++) {
-            const bx = cx - i * 4 * dir + (Math.random() - 0.5) * 6;
-            const by = cy + (Math.random() - 0.5) * 12;
-            const r = Math.max(2, 9 - i);
-            ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(by), r + 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(by), r, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(by), Math.round(r * 0.5), 0, Math.PI * 2); ctx.fill();
+        // Rastro elemental durante o avanço
+        if (p < 0.42) {
+          const t = p / 0.42;
+          const cx = sx + (ex - sx) * t;
+          const cy = sy + (ey - sy) * t;
+          for (let i = 0; i < 5; i++) {
+            const bx = cx - i * 4 * dir;
+            const r = Math.max(2, (dna.subMode === 'aura_blitz' ? 9 : 5) - i);
+            ctx.fillStyle = i % 2 === 0 ? palette.outer : palette.speciesAccent;
+            ctx.beginPath(); ctx.arc(Math.round(bx), Math.round(cy), r, 0, Math.PI * 2); ctx.fill();
           }
         } else {
           if (!hit) { hit = true; onHit(); }
-          const imp = (p - 0.45) / 0.55;
-          const r = Math.round(6 + imp * 22);
-          ctx.strokeStyle = palette.outer; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.arc(Math.round(ex), Math.round(ey), r, 0, Math.PI * 2); ctx.stroke();
-          ctx.strokeStyle = palette.core; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.arc(Math.round(ex), Math.round(ey), Math.round(r * 0.65), 0, Math.PI * 2); ctx.stroke();
+          const imp = (p - 0.42) / 0.58;
+          ctx.globalAlpha = imp > 0.7 ? Math.max(0, (1 - imp) / 0.3) : 1;
+
+          if (dna.subMode === 'fang_clamp') {
+            // Presas superiores e inferiores fechando sobre o alvo (Crunch, Bite, Fire/Ice/Thunder Fang)
+            const gap = Math.round((1 - Math.sin(Math.min(imp * 1.4, 1) * Math.PI)) * 14);
+            ctx.fillStyle = palette.outline;
+            for (let t = -2; t <= 2; t++) {
+              ctx.fillRect(ex + t * 5 - 1, ey - gap - 5, 3, 6);
+              ctx.fillRect(ex + t * 5 - 1, ey + gap, 3, 6);
+            }
+            ctx.fillStyle = palette.core;
+            for (let t = -2; t <= 2; t++) {
+              ctx.fillRect(ex + t * 5, ey - gap - 4, 1, 4);
+              ctx.fillRect(ex + t * 5, ey + gap + 1, 1, 4);
+            }
+          } else if (dna.subMode === 'combo_strikes') {
+            // Múltiplos impactos em posições diferentes (Close Combat, Mach Punch, Outrage)
+            for (let k = 0; k < dna.strikeCount; k++) {
+              const kp = (imp * dna.strikeCount) - k;
+              if (kp < 0 || kp > 1.2) continue;
+              const ox = Math.cos(k * 2.4) * 10;
+              const oy = Math.sin(k * 2.4) * 10;
+              const r = Math.round(4 + Math.sin(Math.min(kp, 1) * Math.PI) * 7);
+              ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(Math.round(ex + ox), Math.round(ey + oy), r + 2, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.arc(Math.round(ex + ox), Math.round(ey + oy), r, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(Math.round(ex + ox), Math.round(ey + oy), Math.max(1, Math.round(r * 0.45)), 0, Math.PI * 2); ctx.fill();
+            }
+          } else if (dna.subMode === 'slash_marks') {
+            // Cortes com contagem e ângulo únicos por golpe
+            const cut = Math.min(imp / 0.45, 1);
+            const lines = dna.isCrossSlash
+              ? [
+                  { x1: ex - 16, y1: ey - 16, x2: ex + 16, y2: ey + 16 },
+                  { x1: ex + 16, y1: ey - 16, x2: ex - 16, y2: ey + 16 },
+                ]
+              : Array.from({ length: dna.slashCount }, (_, i) => {
+                  const shift = (i - (dna.slashCount - 1) / 2) * 7;
+                  return {
+                    x1: ex - 14 * dir + shift,
+                    y1: ey - 15,
+                    x2: ex + 14 * dir + shift,
+                    y2: ey + 15,
+                  };
+                });
+
+            for (const l of lines) {
+              const cx = Math.round(l.x1 + (l.x2 - l.x1) * cut);
+              const cy = Math.round(l.y1 + (l.y2 - l.y1) * cut);
+              ctx.strokeStyle = palette.outline; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
+              ctx.strokeStyle = palette.outer;   ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
+              ctx.strokeStyle = palette.core;    ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
+            }
+          } else {
+            // Onda de choque de investida corporal (Flare Blitz, Brave Bird, Tackle)
+            const r = Math.round(6 + imp * 22 * dna.powerScale);
+            ctx.strokeStyle = palette.outer; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.strokeStyle = palette.core; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(ex, ey, Math.round(r * 0.6), 0, Math.PI * 2); ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
         }
 
         if (p < 1) requestAnimationFrame(frame);
@@ -1247,169 +1291,41 @@ class BattleAnimator {
     });
   }
 
-  // 7. SLASH COMBO (Dragon Claw, Air Slash, X-Scissor, Night Slash)
-  _fxSlashCombo(endX, endY, dir, palette, onHit, sig) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const ex = Math.round(endX / s), ey = Math.round(endY / s);
-      const duration = sig.duration || 520;
-      const t0 = performance.now();
-      let hit = false;
-
-      const lines = sig.cross
-        ? [
-            { x1: ex - 16, y1: ey - 16, x2: ex + 16, y2: ey + 16 },
-            { x1: ex + 16, y1: ey - 16, x2: ex - 16, y2: ey + 16 },
-          ]
-        : Array.from({ length: sig.slashes || 3 }, (_, i) => ({
-            x1: ex - (14 - i * 7) * dir,
-            y1: ey - 16 + i * 3,
-            x2: ex + (14 + i * 7) * dir,
-            y2: ey + 16 + i * 3,
-          }));
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        if (!hit && p >= 0.25) { hit = true; onHit(); }
-        const cut = Math.min(p / 0.5, 1);
-        ctx.globalAlpha = p > 0.65 ? Math.max(0, (1 - p) / 0.35) : 1;
-
-        for (const l of lines) {
-          const cx = Math.round(l.x1 + (l.x2 - l.x1) * cut);
-          const cy = Math.round(l.y1 + (l.y2 - l.y1) * cut);
-          ctx.strokeStyle = palette.outline; ctx.lineWidth = 4;
-          ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
-          ctx.strokeStyle = palette.outer; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
-          ctx.strokeStyle = palette.core; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(cx, cy); ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 8. MULTI PUNCH (Close Combat, Mach Punch, Meteor Mash, Outrage)
-  _fxMultiPunch(endX, endY, dir, palette, onHit, sig) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const ex = Math.round(endX / s), ey = Math.round(endY / s);
-      const hits = sig.hits || 4;
-      const duration = sig.duration || 760;
-      const t0 = performance.now();
-      let mainHit = false;
-
-      const punches = Array.from({ length: hits }, (_, i) => ({
-        tStart: (i / hits) * 0.65,
-        ox: (Math.random() - 0.5) * 20,
-        oy: (Math.random() - 0.5) * 20,
-      }));
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        for (const pu of punches) {
-          const lp = (p - pu.tStart) / 0.35;
-          if (lp < 0 || lp > 1) continue;
-          if (!mainHit && lp >= 0.3) { mainHit = true; onHit(); }
-          const x = Math.round(ex + pu.ox - (1 - lp) * 14 * dir);
-          const y = Math.round(ey + pu.oy);
-          const r = Math.round(4 + Math.sin(lp * Math.PI) * 6);
-
-          ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(x, y, Math.max(1, Math.round(r * 0.5)), 0, Math.PI * 2); ctx.fill();
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 9. BOLT SKY (Thunder - Relâmpago vertical do céu)
-  _fxBoltSky(endX, endY, palette, onHit, duration = 640) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const ex = Math.round(endX / s), ey = Math.round(endY / s);
-      const t0 = performance.now();
-      let hit = false, fc = 0;
-
-      const makeBolt = () => {
-        const pts = [{ x: ex + Math.round((Math.random() - 0.5) * 10), y: 0 }];
-        for (let i = 1; i < 8; i++) {
-          pts.push({ x: Math.round(ex + (Math.random() - 0.5) * 18), y: Math.round((ey * i) / 8) });
-        }
-        pts.push({ x: ex, y: ey });
-        return pts;
-      };
-      let pts = makeBolt();
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        if (!hit && p >= 0.15) { hit = true; onHit(); }
-
-        if (p < 0.8) {
-          if (fc++ % 3 === 0) pts = makeBolt();
-          [
-            [5, palette.outline],
-            [3, palette.outer],
-            [1, palette.core],
-          ].forEach(([w, c]) => {
-            ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
-            ctx.moveTo(pts[0].x, pts[0].y);
-            pts.forEach((pt) => ctx.lineTo(pt.x, pt.y));
-            ctx.stroke();
-          });
-          ctx.fillStyle = palette.outer; ctx.beginPath(); ctx.arc(ex, ey, 9, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.core;  ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI * 2); ctx.fill();
-        }
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 10. BOLT ARC (Thunderbolt / Discharge - Raio horizontal do atacante ao alvo)
-  _fxBoltArc(startX, startY, endX, endY, palette, onHit, duration = 620) {
+  // ==================== 4. BOLT (Relâmpagos Verticais ou Arcos Horizontais) ====================
+  _renderBolt(startX, startY, endX, endY, palette, onHit, dna, species) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
       const sx = Math.round(startX / s), sy = Math.round(startY / s);
       const ex = Math.round(endX / s), ey = Math.round(endY / s);
+      const isSky = dna.subMode === 'sky_strike';
+      const duration = dna.duration;
       const t0 = performance.now();
       let hit = false, fc = 0;
 
-      const makeArc = () => {
-        const pts = [{ x: sx, y: sy }];
-        for (let i = 1; i < 9; i++) {
-          const t = i / 9;
+      const buildPath = () => {
+        const x0 = isSky ? ex + Math.round((Math.random() - 0.5) * 10) : sx;
+        const y0 = isSky ? 0 : sy;
+        const pts = [{ x: x0, y: y0 }];
+        const segs = 8 + (dna.waveFreq % 4);
+        for (let i = 1; i < segs; i++) {
+          const t = i / segs;
           pts.push({
-            x: Math.round(sx + (ex - sx) * t),
-            y: Math.round(sy + (ey - sy) * t + (Math.random() - 0.5) * 16),
+            x: Math.round(x0 + (ex - x0) * t + (isSky ? (Math.random() - 0.5) * 18 : 0)),
+            y: Math.round(y0 + (ey - y0) * t + (!isSky ? (Math.random() - 0.5) * 16 : 0)),
           });
         }
         pts.push({ x: ex, y: ey });
         return pts;
       };
-      let pts = makeArc();
+      let pts = buildPath();
 
       const frame = (now) => {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        if (!hit && p >= 0.2) { hit = true; onHit(); }
+        if (!hit && p >= 0.18) { hit = true; onHit(); }
 
         if (p < 0.82) {
-          if (fc++ % 2 === 0) pts = makeArc();
+          if (fc++ % 2 === 0) pts = buildPath();
           [
             [5, palette.outline],
             [3, palette.outer],
@@ -1420,7 +1336,8 @@ class BattleAnimator {
             pts.forEach((pt) => ctx.lineTo(pt.x, pt.y));
             ctx.stroke();
           });
-          ctx.fillStyle = palette.core; ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = palette.speciesAccent; ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = palette.core;          ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI * 2); ctx.fill();
         }
         if (p < 1) requestAnimationFrame(frame);
         else resolve();
@@ -1429,37 +1346,108 @@ class BattleAnimator {
     });
   }
 
-  // 11. QUAKE (Earthquake, Earth Power, Frenzy Plant - Pilares de rocha/raízes brotando do solo)
-  _fxQuake(startX, floorY, endX, palette, onHit, duration = 900) {
+  // ==================== 5. FIELD AREA (Estrela Fire Blast, Tsunami, Terremoto, Chuva de Pedras, Ciclone, Anéis) ====================
+  _renderFieldArea(startX, startY, endX, endY, floorY, dir, palette, onHit, dna) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, ex = endX / s, fy = Math.round(floorY / s);
+      const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s, fy = Math.round(floorY / s);
+      const duration = dna.duration;
       const t0 = performance.now();
       let hit = false;
 
-      const pillars = [-14, -7, 0, 7, 14].map((ox, i) => ({
-        x: Math.round(ex + ox),
-        maxH: 18 + (2 - Math.abs(i - 2)) * 6,
-      }));
+      const starAngles = [-Math.PI / 2, -Math.PI / 2 + 0.72, -Math.PI / 2 - 0.72, Math.PI / 2 + 0.52, Math.PI / 2 - 0.52];
 
       const frame = (now) => {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        const waveX = sx + (ex - sx) * Math.min(p / 0.4, 1);
-        ctx.strokeStyle = palette.mid; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(Math.round(sx), fy); ctx.lineTo(Math.round(waveX), fy); ctx.stroke();
-
-        if (p >= 0.35) {
-          if (!hit) { hit = true; onHit(); }
-          const ep = (p - 0.35) / 0.65;
-          const rise = Math.sin(Math.min(ep * 1.2, 1) * Math.PI);
-          for (const pl of pillars) {
-            const h = Math.max(2, Math.round(pl.maxH * rise));
-            ctx.fillStyle = palette.outline;
-            ctx.beginPath(); ctx.moveTo(pl.x - 4, fy); ctx.lineTo(pl.x, fy - h - 2); ctx.lineTo(pl.x + 4, fy); ctx.fill();
-            ctx.fillStyle = palette.mid;
-            ctx.beginPath(); ctx.moveTo(pl.x - 2, fy); ctx.lineTo(pl.x, fy - h); ctx.lineTo(pl.x + 2, fy); ctx.fill();
+        if (dna.subMode === 'star_nova') {
+          // Fire Blast / Overheat
+          if (p < 0.34) {
+            const t = p / 0.34;
+            const cx = Math.round(sx + (ex - sx) * t), cy = Math.round(sy + (ey - sy) * t);
+            ctx.fillStyle = palette.outer; ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = palette.core;  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+          } else {
+            if (!hit) { hit = true; onHit(); }
+            const bt = (p - 0.34) / 0.66;
+            const fade = bt > 0.7 ? (1 - bt) / 0.3 : 1;
+            const armLen = Math.min(26, bt * 46);
+            for (const a of starAngles) {
+              for (let step = 0; step <= armLen; step += 4) {
+                const bx = Math.round(ex + Math.cos(a) * step), by = Math.round(ey + Math.sin(a) * step);
+                const r = Math.max(1, Math.round((6 - step * 0.1) * fade));
+                ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(bx, by, r + 2, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(bx, by, Math.max(1, Math.round(r * 0.45)), 0, Math.PI * 2); ctx.fill();
+              }
+            }
+          }
+        } else if (dna.subMode === 'tsunami_wave') {
+          // Surf / Muddy Water / Heat Wave
+          const wx = sx + (ex - sx) * Math.min(p / 0.72, 1.15);
+          const crestH = Math.sin(Math.min(p / 0.85, 1) * Math.PI) * 34;
+          if (!hit && Math.abs(wx - ex) < 12) { hit = true; onHit(); }
+          if (crestH > 1) {
+            for (let i = -3; i <= 3; i++) {
+              const bx = Math.round(wx - i * 5 * dir);
+              const by = Math.round(fy - crestH * (1 - Math.abs(i) * 0.16));
+              const r = Math.max(3, 8 - Math.abs(i));
+              ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(bx, by, r + 2, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = palette.outer;   ctx.fillRect(bx - r, by, r * 2, Math.max(2, fy - by));
+              ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = palette.core;    ctx.fillRect(bx - 2, by - r, 4, 2);
+            }
+          }
+        } else if (dna.subMode === 'seismic_pillars') {
+          // Earthquake / Earth Power / Frenzy Plant
+          const waveX = sx + (ex - sx) * Math.min(p / 0.4, 1);
+          ctx.strokeStyle = palette.mid; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(Math.round(sx), fy); ctx.lineTo(Math.round(waveX), fy); ctx.stroke();
+          if (p >= 0.35) {
+            if (!hit) { hit = true; onHit(); }
+            const rise = Math.sin(Math.min(((p - 0.35) / 0.65) * 1.2, 1) * Math.PI);
+            [-14, -7, 0, 7, 14].forEach((ox, i) => {
+              const px = Math.round(ex + ox);
+              const h = Math.max(2, Math.round((18 + (2 - Math.abs(i - 2)) * 6) * rise));
+              ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.moveTo(px - 4, fy); ctx.lineTo(px, fy - h - 2); ctx.lineTo(px + 4, fy); ctx.fill();
+              ctx.fillStyle = palette.mid;     ctx.beginPath(); ctx.moveTo(px - 2, fy); ctx.lineTo(px, fy - h); ctx.lineTo(px + 2, fy); ctx.fill();
+            });
+          }
+        } else if (dna.subMode === 'sky_barrage') {
+          // Stone Edge / Rock Slide / Draco Meteor
+          [-14, -7, 0, 7, 14].forEach((ox, i) => {
+            const lp = Math.max(0, Math.min((p - i * 0.08) / 0.55, 1));
+            if (lp <= 0) return;
+            const rx = Math.round(ex + ox);
+            const ry = Math.round((ey - 32) + 34 * (lp * lp));
+            if (lp >= 0.9 && !hit) { hit = true; onHit(); }
+            ctx.fillStyle = palette.outline; ctx.fillRect(rx - 4, ry - 4, 8, 8);
+            ctx.fillStyle = palette.outer;   ctx.fillRect(rx - 3, ry - 3, 6, 6);
+            ctx.fillStyle = palette.core;    ctx.fillRect(rx - 2, ry - 2, 2, 2);
+          });
+        } else if (dna.subMode === 'vortex_cyclone') {
+          // Blizzard / Hurricane / Petal Dance
+          if (!hit && p >= 0.28) { hit = true; onHit(); }
+          for (let i = 0; i < 18; i++) {
+            const hNorm = i / 18;
+            const y = Math.round(fy - hNorm * 38);
+            const radius = 5 + hNorm * 16;
+            const x = Math.round(ex + Math.cos(p * 18 + i * 0.8) * radius);
+            ctx.fillStyle = i % 3 === 0 ? palette.speciesAccent : (i % 2 === 0 ? palette.mid : palette.core);
+            ctx.fillRect(x - 1, y - 1, 3, 2);
+          }
+        } else {
+          // Harmonic Rings (Psychic, Dragon Pulse, Hyper Voice, Dark Pulse)
+          for (let i = 0; i < 4; i++) {
+            const lp = Math.max(0, Math.min((p - i * 0.12) / 0.65, 1));
+            if (lp <= 0) continue;
+            const cx = Math.round(sx + (ex - sx) * lp);
+            const cy = Math.round(sy + (ey - sy) * lp);
+            const r = Math.round(4 + lp * 13);
+            if (lp >= 0.92 && !hit) { hit = true; onHit(); }
+            ctx.strokeStyle = palette.outline; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.strokeStyle = i % 2 === 0 ? palette.mid : palette.speciesAccent; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
           }
         }
 
@@ -1470,48 +1458,12 @@ class BattleAnimator {
     });
   }
 
-  // 12. ROCK BARRAGE (Stone Edge, Rock Slide, Draco Meteor)
-  _fxRockBarrage(endX, endY, floorY, palette, onHit, duration = 800) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const ex = Math.round(endX / s), ey = Math.round(endY / s);
-      const t0 = performance.now();
-      let hit = false;
-
-      const rocks = [-14, -7, 0, 7, 14].map((ox, i) => ({
-        x: ex + ox,
-        startY: ey - 32 - (i % 2) * 8,
-        targetY: ey + (i % 3) * 4,
-        delay: i * 0.08,
-      }));
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        for (const rk of rocks) {
-          const lp = Math.max(0, Math.min((p - rk.delay) / 0.55, 1));
-          if (lp <= 0) continue;
-          const y = Math.round(rk.startY + (rk.targetY - rk.startY) * (lp * lp));
-          if (lp >= 0.9 && !hit) { hit = true; onHit(); }
-
-          ctx.fillStyle = palette.outline; ctx.fillRect(rk.x - 4, y - 4, 8, 8);
-          ctx.fillStyle = palette.outer;   ctx.fillRect(rk.x - 3, y - 3, 6, 6);
-          ctx.fillStyle = palette.core;    ctx.fillRect(rk.x - 2, y - 2, 2, 2);
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  // 13. PSYCHIC PULSE & ENERGY ORB (Psychic, Dragon Pulse, Shadow Ball, Aura Sphere)
-  _fxPsychicPulse(startX, startY, endX, endY, palette, onHit, duration = 800) {
+  // ==================== 6. DRAIN TETHER (Giga Drain, Drain Punch, Leech Life) ====================
+  _renderDrainTether(startX, startY, endX, endY, palette, onHit, dna) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
       const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
+      const duration = dna.duration + 180;
       const t0 = performance.now();
       let hit = false;
 
@@ -1519,53 +1471,24 @@ class BattleAnimator {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        for (let i = 0; i < 4; i++) {
-          const lp = Math.max(0, Math.min((p - i * 0.12) / 0.65, 1));
-          if (lp <= 0) continue;
-          const cx = Math.round(sx + (ex - sx) * lp);
-          const cy = Math.round(sy + (ey - sy) * lp);
-          const r = Math.round(4 + lp * 12);
-
-          if (lp >= 0.92 && !hit) { hit = true; onHit(); }
-          ctx.strokeStyle = palette.outline; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-          ctx.strokeStyle = palette.mid; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  _fxEnergyOrb(startX, startY, endX, endY, palette, onHit, duration = 740) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const sx = startX / s, sy = startY / s, ex = endX / s, ey = endY / s;
-      const t0 = performance.now();
-      let hit = false;
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-        const travel = Math.min(p / 0.65, 1);
-        const cx = Math.round(sx + (ex - sx) * (travel * travel));
-        const cy = Math.round(sy + (ey - sy) * (travel * travel) - Math.sin(travel * Math.PI) * 7);
-
-        if (travel < 1) {
-          const r = 8 + Math.sin(p * 30) * 1.5;
-          ctx.fillStyle = palette.outline; ctx.beginPath(); ctx.arc(cx, cy, Math.round(r * 1.3), 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.outer;   ctx.beginPath(); ctx.arc(cx, cy, Math.round(r), 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = palette.core;    ctx.beginPath(); ctx.arc(cx, cy, Math.round(r * 0.45), 0, Math.PI * 2); ctx.fill();
+        if (p < 0.45) {
+          // Onda de drenagem indo até o alvo
+          const t = p / 0.45;
+          const cx = Math.round(sx + (ex - sx) * t), cy = Math.round(sy + (ey - sy) * t);
+          ctx.strokeStyle = palette.mid; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.stroke();
         } else {
           if (!hit) { hit = true; onHit(); }
-          const exp = (p - 0.65) / 0.35;
-          const r = Math.round(8 + exp * 18);
-          ctx.strokeStyle = palette.mid; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(Math.round(ex), Math.round(ey), r, 0, Math.PI * 2); ctx.stroke();
+          // Orbes vitais voltando do alvo para curar o atacante!
+          const rt = (p - 0.45) / 0.55;
+          for (let i = 0; i < 7; i++) {
+            const lt = Math.max(0, Math.min((rt - i * 0.08) / 0.65, 1));
+            if (lt <= 0 || lt >= 1) continue;
+            const ox = Math.round(ex + (sx - ex) * lt);
+            const oy = Math.round(ey + (sy - ey) * lt + Math.sin(lt * Math.PI * 2 + i) * 7);
+            ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#dcfce7'; ctx.fillRect(ox - 1, oy - 1, 2, 2);
+          }
         }
 
         if (p < 1) requestAnimationFrame(frame);
@@ -1575,54 +1498,29 @@ class BattleAnimator {
     });
   }
 
-  // 14. VORTEX STORM & STATUS BUFF (Blizzard, Hurricane, Swords Dance, Protect)
-  _fxVortexStorm(endX, endY, floorY, palette, onHit, duration = 950) {
+  // ==================== 7. STATUS AURA (Buff, Cura, Escudo ou Debuff no Alvo) ====================
+  _renderStatusAura(targetX, floorY, palette, dna) {
     return new Promise((resolve) => {
       const ctx = this.ctx, s = this.pixelScale;
-      const ex = Math.round(endX / s), fy = Math.round(floorY / s);
-      const t0 = performance.now();
-      let hit = false;
-
-      const frame = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        if (!hit && p >= 0.3) { hit = true; onHit(); }
-
-        for (let i = 0; i < 16; i++) {
-          const hNorm = i / 16;
-          const y = Math.round(fy - hNorm * 38);
-          const radius = 5 + hNorm * 16;
-          const x = Math.round(ex + Math.cos(p * 18 + i * 0.8) * radius);
-          ctx.fillStyle = i % 2 === 0 ? palette.mid : palette.core;
-          ctx.fillRect(x - 1, y - 1, 3, 2);
-        }
-
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
-  }
-
-  _fxStatusBuff(centerX, floorY, palette, mode = 'buff', duration = 740) {
-    return new Promise((resolve) => {
-      const ctx = this.ctx, s = this.pixelScale;
-      const cx = Math.round(centerX / s), fy = Math.round(floorY / s);
+      const cx = Math.round(targetX / s), fy = Math.round(floorY / s);
+      const duration = dna.duration;
       const t0 = performance.now();
 
       const frame = (now) => {
         const p = Math.min((now - t0) / duration, 1);
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        if (mode === 'shield') {
+        if (dna.subMode === 'shield') {
           ctx.strokeStyle = palette.core; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(cx, fy - 16, Math.round(14 + Math.sin(p * Math.PI) * 4), 0, Math.PI * 2); ctx.stroke();
         } else {
-          const color = mode === 'heal' ? '#4ade80' : palette.mid;
+          const isDebuff = dna.subMode === 'debuff_target';
+          const color = dna.subMode === 'heal' ? '#4ade80' : (isDebuff ? '#a855f7' : palette.mid);
           for (let i = 0; i < 8; i++) {
             const a = (Math.PI * 2 * i) / 8 + p * 8;
             const x = Math.round(cx + Math.cos(a) * 14);
-            const y = Math.round(fy - 6 - ((p * 30 + i * 4) % 28));
+            const offset = (p * 30 + i * 4) % 28;
+            const y = Math.round(isDebuff ? (fy - 34 + offset) : (fy - 6 - offset));
             ctx.fillStyle = color;
             ctx.fillRect(x - 1, y - 2, 2, 5);
           }

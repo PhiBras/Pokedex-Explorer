@@ -198,9 +198,12 @@ async function loadFighterMoves(index,serial){
   const detailedMoves=results.filter(Boolean).map(move=>({
     ...move,
     name:move.name,
-    type:move.type.name.toUpperCase(),
+    type:move.type.name,
     damageClass:move.damage_class.name,
-    power:move.power||0
+    power:move.power||0,
+    priority:move.priority||0,
+    drain:move.meta?.drain||0,
+    meta:move.meta||null
   }));
   const candidates=detailedMoves.filter(move=>move.pp>0&&(move.damageClass!=="status"||statusNames[move.meta?.ailment?.name]||move.meta?.healing));
   const unique=[...new Map(candidates.map(move=>[move.name,move])).values()];
@@ -234,8 +237,7 @@ function renderFighters(){
     const sprite=battleSpriteFor(pokemon,index);
     $("#name"+suffix).textContent=title(pokemon.name);rig.placeholder.alt=title(pokemon.name);
     rig.stopIdle();
-    setRigSprite(rig,sprite.src,sprite.fallbacks,title(pokemon.name));
-    rig.startIdle();
+    setRigSprite(rig,sprite.src,sprite.fallbacks,pokemon.name);
     stage.className=`sprite-stage facing-${index===0?"right":"left"}`;
     $("#types"+suffix).innerHTML=pokemon.types.map(type=>badge(type.type.name)).join("");
     updateHealth(index);renderStatus(index);
@@ -263,10 +265,10 @@ function setRigSprite(rig,src,fallbacks,pokemonName){
         const fallback=fallbacks.shift();
         if(fallback){load(fallback);return}
         images.forEach(layer=>{layer.onerror=null});
-        console.error(`Não foi possível carregar o sprite de ${pokemonName}.`,new Error(nextSrc));
+        console.error(`Não foi possível carregar o sprite de ${title(pokemonName)}.`,new Error(nextSrc));
       };
     });
-    rig.setSprite(nextSrc);
+    rig.setSprite(nextSrc,pokemonName);
   };
   load(src);
 }
@@ -339,7 +341,7 @@ function chooseAiMove(){
     return {move,score};
   }).sort((a,b)=>b.score-a.score)[0].move;
 }
-function struggleMove(){return {name:"struggle",power:50,accuracy:100,pp:1,type:"NORMAL",damageClass:"physical",meta:{ailment:{name:"none"}}}}
+function struggleMove(){return {name:"struggle",power:50,accuracy:100,pp:1,type:"normal",damageClass:"physical",priority:0,drain:0,meta:{ailment:{name:"none"}}}}
 async function performAction(attackerIndex,move){
   const battle=state.battle,serial=battle.serial,defenderIndex=1-attackerIndex,attacker=battle.fighters[attackerIndex],defender=battle.fighters[defenderIndex];
   if(!move)return;
@@ -414,7 +416,8 @@ function applyEndTurnStatus(index){
   }
 }
 async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallback,selfTarget=false){
-  const serial=state.battle.serial,targetIndex=selfTarget?attackerIndex:defenderIndex;
+  const battle=state.battle,serial=battle.serial,targetIndex=selfTarget?attackerIndex:defenderIndex;
+  const attacker=battle.fighters[attackerIndex],target=battle.fighters[targetIndex];
   const fighter=$("#battleFighter"+suffixFor(attackerIndex));
   const collision=onHitCallback?()=>{
     if(serial!==state.battle.serial)return;
@@ -429,10 +432,15 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
     await animator.playAttack({
       attackerEl:battleRigs[attackerIndex].root,
       targetEl:battleRigs[targetIndex].root,
+      attackerName:attacker.name,
+      targetName:target.name,
       moveName:move.name,
       moveType:move.type,
       damageClass:move.damageClass,
       power:move.power,
+      priority:move.priority,
+      drain:move.drain,
+      meta:move.meta,
       onImpact:collision
     });
   }finally{
