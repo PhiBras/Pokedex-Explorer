@@ -164,10 +164,22 @@ function injectStylesOnce() {
   style.id = 'pixel-battle-fx-styles';
   style.textContent = `
     @keyframes pbfx-lunge {
-      0%   { transform: translateX(0); }
-      25%  { transform: translateX(calc(var(--pbfx-dir, 1) * -6px)); }
-      55%  { transform: translateX(calc(var(--pbfx-dir, 1) * 20px)); }
+      0%   { transform: translateX(0) scale(1, 1); }
+      20%  { transform: translateX(calc(var(--pbfx-dir, 1) * -7px)) scale(.96, .94); }
+      65%  { transform: translateX(calc(var(--pbfx-dir, 1) * 34px)) scale(1.02, 1); }
       100% { transform: translateX(0); }
+    }
+
+    @keyframes pbfx-windup {
+      0%, 100% { transform: translateX(0) scale(1, 1); }
+      30%      { transform: translateX(calc(var(--pbfx-dir, 1) * -7px)) scale(.97, .94); }
+      70%      { transform: translateX(calc(var(--pbfx-dir, 1) * -3px)) scale(.99, .97); }
+    }
+
+    @keyframes pbfx-recoil {
+      0%, 100% { transform: translateX(0); }
+      30%      { transform: translateX(calc(var(--pbfx-dir, 1) * -16px)) scale(.98, .97); }
+      65%      { transform: translateX(calc(var(--pbfx-dir, 1) * -8px)); }
     }
 
     @keyframes pbfx-hit-shake {
@@ -187,12 +199,42 @@ function injectStylesOnce() {
       80%      { transform: translate(3px, 2px); }
     }
 
-    .pbfx-anim-lunge, .sprite-stage.pbfx-anim-lunge {
-      animation: pbfx-lunge 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+    .pbfx-anim-windup {
+      animation: pbfx-windup 0.26s steps(3, end) both;
+    }
+
+    .sprite-stage.pbfx-anim-windup,
+    .sprite-stage.pbfx-anim-lunge,
+    .sprite-stage.pbfx-anim-recoil {
+      filter: drop-shadow(0 0 10px var(--pbfx-glow, #ff9500));
+    }
+
+    .pbfx-anim-lunge {
+      animation: pbfx-lunge 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .pbfx-anim-recoil {
+      animation: pbfx-recoil 0.22s steps(3, end);
     }
 
     .pbfx-anim-hit, .sprite-stage.pbfx-anim-hit {
       animation: pbfx-hit-shake 0.38s steps(2, end);
+    }
+
+    @keyframes pbfx-ko {
+      0%, 12%, 24%, 36% { opacity: 1; filter: brightness(1); }
+      18%, 30%          { opacity: .25; filter: brightness(2.4); }
+      100%               { opacity: 0; transform: translateY(48px); filter: brightness(.2); }
+    }
+
+    .pbfx-anim-ko {
+      animation: pbfx-ko 0.9s steps(6, end) forwards;
+    }
+
+    .pbfx-ko-complete {
+      opacity: 0;
+      transform: translateY(48px);
+      pointer-events: none;
     }
 
     .pbfx-arena-shake {
@@ -218,6 +260,7 @@ class BattleAnimator {
     this._runId = 0;
     this._activeAttacker = null;
     this._activeTarget = null;
+    this._activeKO = null;
 
     injectStylesOnce();
     this._setupCanvas();
@@ -264,8 +307,9 @@ class BattleAnimator {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     [this._activeAttacker, this._activeTarget].forEach((element) => {
       if (!element) return;
-      element.classList.remove('pbfx-anim-lunge', 'pbfx-anim-hit');
+      element.classList.remove('pbfx-anim-windup', 'pbfx-anim-lunge', 'pbfx-anim-recoil', 'pbfx-anim-hit');
       element.style.removeProperty('--pbfx-dir');
+      element.style.removeProperty('--pbfx-glow');
     });
     this.arenaEl.classList.remove('pbfx-arena-shake');
     this._activeAttacker = null;
@@ -276,6 +320,7 @@ class BattleAnimator {
     this._runId++;
     this.isPlaying = false;
     this._clearTransientEffects();
+    if (this._activeKO) this._activeKO.cancel();
   }
 
   _getAnchorPoints(attackerEl, targetEl) {
@@ -294,11 +339,26 @@ class BattleAnimator {
     return { startX, startY, endX, endY, dir };
   }
 
+  _triggerWindUp(attackerEl, dir, glow) {
+    attackerEl.style.setProperty('--pbfx-dir', String(dir));
+    attackerEl.style.setProperty('--pbfx-glow', glow);
+    attackerEl.classList.remove('pbfx-anim-windup');
+    void attackerEl.offsetWidth;
+    attackerEl.classList.add('pbfx-anim-windup');
+  }
+
   _triggerLunge(attackerEl, dir) {
     attackerEl.style.setProperty('--pbfx-dir', String(dir));
     attackerEl.classList.remove('pbfx-anim-lunge');
-    void attackerEl.offsetWidth; // força reflow para reiniciar animação
+    void attackerEl.offsetWidth;
     attackerEl.classList.add('pbfx-anim-lunge');
+  }
+
+  _triggerRecoil(attackerEl, dir) {
+    attackerEl.style.setProperty('--pbfx-dir', String(dir));
+    attackerEl.classList.remove('pbfx-anim-recoil');
+    void attackerEl.offsetWidth;
+    attackerEl.classList.add('pbfx-anim-recoil');
   }
 
   _triggerHitReaction(targetEl, dir, onImpact) {
@@ -324,29 +384,47 @@ class BattleAnimator {
    * @param {HTMLElement} params.targetEl Elemento HTML/IMG do Pokémon defensor
    * @param {string} [params.moveType='FOGO'] Tipo do golpe (ex: 'FOGO', 'ÁGUA', 'VOADOR', 'ELÉTRICO')
    * @param {'beam'|'slash'|'bolt'|'projectile'} [params.archetype] Sobrescreve estilo visual se desejado
+   * @param {'physical'|'special'|'status'} [params.moveCategory] Categoria do golpe
    * @param {Function} [params.onImpact] Callback executado no exato frame em que o golpe acerta (reduzir HP aqui)
    */
-  async playAttack({ attackerEl, targetEl, moveType = 'FOGO', archetype, onImpact }) {
+  async playAttack({ attackerEl, targetEl, moveType = 'FOGO', archetype, moveCategory, onImpact }) {
     if (!attackerEl || !targetEl) return;
 
     this.cancel();
     const runId = this._runId;
     const isCurrent = () => runId === this._runId;
     this.resize();
+    attackerEl.classList.remove('entering');
+    targetEl.classList.remove('entering');
     this.isPlaying = true;
     this._activeAttacker = attackerEl;
     this._activeTarget = targetEl;
 
     const normalized = normalizeType(moveType);
     const config = TYPE_CONFIGS[normalized] || TYPE_CONFIGS.NORMAL;
-    const effectType = archetype || config.archetype;
+    const configuredType = archetype || config.archetype;
+    const effectType = moveCategory === 'physical'
+      ? 'slash'
+      : moveCategory === 'special' && configuredType === 'slash'
+        ? 'projectile'
+        : configuredType;
     const palette = config.palette;
 
     const { startX, startY, endX, endY, dir } = this._getAnchorPoints(attackerEl, targetEl);
 
     try {
-      if (attackerEl !== targetEl) this._triggerLunge(attackerEl, dir);
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (attackerEl !== targetEl) {
+        this._triggerWindUp(attackerEl, dir, palette.outer);
+        await new Promise((resolve) => setTimeout(resolve, 260));
+        if (!isCurrent()) return;
+        attackerEl.classList.remove('pbfx-anim-windup');
+        if (effectType === 'slash') {
+          this._triggerLunge(attackerEl, dir);
+          await new Promise((resolve) => setTimeout(resolve, 110));
+        } else {
+          this._triggerRecoil(attackerEl, dir);
+        }
+      }
       if (!isCurrent()) return;
 
       const handleImpact = () => {
@@ -370,6 +448,38 @@ class BattleAnimator {
         this.isPlaying = false;
       }
     }
+  }
+
+  async playKO(targetEl) {
+    if (!targetEl) return;
+    this.cancel();
+    targetEl.classList.remove('pbfx-ko-complete', 'pbfx-anim-ko', 'entering', 'victorious');
+    void targetEl.offsetWidth;
+
+    await new Promise((resolve) => {
+      let timer;
+      let finished = false;
+      const finish = (completed) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        targetEl.removeEventListener('animationend', onAnimationEnd);
+        targetEl.classList.remove('pbfx-anim-ko');
+        if (completed) targetEl.classList.add('pbfx-ko-complete');
+        else targetEl.classList.remove('pbfx-ko-complete');
+        if (this._activeKO?.targetEl === targetEl) this._activeKO = null;
+        resolve();
+      };
+      const onAnimationEnd = (event) => {
+        if (event.target === targetEl && event.animationName === 'pbfx-ko') finish(true);
+      };
+
+      this._activeKO = { targetEl, cancel: () => finish(false) };
+      targetEl.addEventListener('animationend', onAnimationEnd);
+      targetEl.classList.add('pbfx-anim-ko');
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      timer = setTimeout(() => finish(true), reducedMotion ? 150 : 1050);
+    });
   }
 
   // 1. FEIXE CONTÍNUO EM 4 CAMADAS (Lança-chamas, Hidro Bomba, Raio Solar, Hiper Raio)

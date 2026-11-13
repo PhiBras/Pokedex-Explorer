@@ -432,47 +432,28 @@ body::before {
 .fighter-right .sprite-stage { right: 8%; left: auto; }
 .sprite-image {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: 88%;
+  height: 88%;
   object-fit: contain;
   filter: drop-shadow(0 17px 18px #000b);
+  image-rendering: pixelated;
+  transform-origin: 50% 85%;
+  animation: sprite-breathe 1.2s steps(2,end) infinite;
 }
 .sprite-image[hidden] { display: none !important; }
-.sprite-canvas { image-rendering: pixelated; }
-.sprite-stage.has-action-sprites { animation: none; }
-.sprite-stage.has-action-sprites .sprite-canvas { width: 100%; height: 100%; transform: none; }
-.sprite-stage.has-action-sprites.facing-left .sprite-canvas { transform: none; }
-.sprite-credit { min-height: 12px; margin-top: 3px; color: #8f8980; font-size: 8px; line-height: 1.35; }
-.sprite-credit a { color: var(--orange-light); text-decoration: underline; text-underline-offset: 2px; }
-.facing-left .sprite-image { transform: scaleX(-1); }
-.sprite-stage.has-animated-sprite .sprite-image { width: 88%; height: 88%; image-rendering: pixelated; }
-.sprite-stage.has-animated-sprite.facing-left .sprite-image { transform: scaleX(-1); }
-.sprite-stage.motion-ember { animation: idle-ember 2.6s ease-in-out infinite; }
-.sprite-stage.motion-sway { animation: idle-sway 3.8s ease-in-out infinite; }
-.sprite-stage.motion-spark { animation: idle-spark 2.1s ease-in-out infinite; }
-.sprite-stage.motion-float { animation: idle-float 4s ease-in-out infinite; }
-.sprite-stage.motion-ready { animation: idle-ready 2.4s ease-in-out infinite; }
-.sprite-stage.motion-heavy { animation: idle-heavy 3.5s ease-in-out infinite; }
-.sprite-stage.motion-hover { animation: idle-hover 3.1s ease-in-out infinite; }
-.sprite-stage.motion-focus { animation: idle-focus 3s ease-in-out infinite; }
-.sprite-stage.motion-breathe { animation: idle-breathe 3.2s ease-in-out infinite; }
-@keyframes idle-ember { 0%,100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-8px) rotate(-1.5deg); } }
-@keyframes idle-sway { 0%,100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-5px) rotate(1.2deg); } }
-@keyframes idle-spark { 0%,100% { transform: translateY(0) translateX(0); } 35% { transform: translateY(-4px) translateX(2px); } 70% { transform: translateY(1px) translateX(-2px); } }
-@keyframes idle-float { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-10px); } }
-@keyframes idle-ready { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(3px) scaleY(.98); } }
-@keyframes idle-heavy { 0%,100% { transform: translateY(0); } 45% { transform: translateY(-3px); } 55% { transform: translateY(1px); } }
-@keyframes idle-hover { 0%,100% { transform: translateY(0) rotate(1deg); } 50% { transform: translateY(-8px) rotate(-1deg); } }
-@keyframes idle-focus { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.015); } }
-@keyframes idle-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.018,.99); } }
+@keyframes sprite-breathe { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(.985); } }
+.sprite-stage.pbfx-anim-windup .sprite-image,
+.sprite-stage.pbfx-anim-lunge .sprite-image,
+.sprite-stage.pbfx-anim-recoil .sprite-image,
+.sprite-stage.pbfx-anim-hit .sprite-image,
+.sprite-stage.pbfx-anim-ko .sprite-image,
+.sprite-stage.pbfx-ko-complete .sprite-image { animation: none; transform: scaleY(1); }
 .sprite-stage.entering.facing-right { animation: enter-from-left .72s cubic-bezier(.16,.78,.22,1) both; }
 .sprite-stage.entering.facing-left { animation: enter-from-right .72s cubic-bezier(.16,.78,.22,1) both; }
 @keyframes enter-from-left { from { opacity: 0; transform: translate(-120px,20px) scale(.72); } to { opacity: 1; transform: translate(0,0) scale(1); } }
 @keyframes enter-from-right { from { opacity: 0; transform: translate(120px,20px) scale(.72); } to { opacity: 1; transform: translate(0,0) scale(1); } }
 .sprite-stage.victorious { animation: victory-leap .7s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes victory-leap { 0% { transform: translateY(0); } 45% { transform: translateY(-30px) rotate(-3deg); } 100% { transform: translateY(0); } }
-.sprite-stage.fainted { animation: faint-fall .82s ease forwards; }
-@keyframes faint-fall { 25% { transform: rotate(-9deg) translateX(-7px); filter: grayscale(.25); } 100% { opacity: .18; transform: translateY(46px) scale(.78) rotate(-13deg); filter: grayscale(1); } }
 .sprite-stage::after {
   position: absolute;
   z-index: -1;

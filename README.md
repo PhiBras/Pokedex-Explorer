@@ -23,10 +23,9 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 - Cálculo de dano com atributos, STAB, precisão, variação aleatória e efetividade elemental.
 - Queimadura, envenenamento, paralisia, sono e congelamento, com efeitos para os dois combatentes.
 - `BattleAnimator` cria um canvas transparente em pixel art sobre a arena, com efeitos escolhidos pelo tipo do movimento.
-- Sequência de avanço, projétil/efeito, impacto e dissipação; HP/status são atualizados no callback de impacto.
-- Sprites animados de batalha da PokeAPI quando disponíveis; ilustração oficial como alternativa.
-- Animações SpriteCollab de repouso e de fim de batalha quando há créditos e licença identificáveis; o sprite-base não é trocado durante os ataques.
-- Animações de repouso variadas por tipo, entrada, preparação, avanço, impacto, vitória e desmaio como alternativas para espécies sem sprites de ação disponíveis.
+- Sprites animados de batalha da geração V da PokéAPI; sprites posicionais de costas/frente e ilustração oficial como alternativas.
+- Animação de respiração no próprio sprite, preparação elemental, avanço/recuo, impacto e nocaute.
+- Sequência de ataque, efeito, impacto e dissipação; HP/status são atualizados no callback de impacto.
 - Coordenadas dos efeitos calculadas pelos limites visuais dos combatentes, com reação do alvo e tremor da arena.
 - Efeitos sincronizados com o dano e o HP; os comandos ficam bloqueados durante cada ação.
 - Indicadores de status, barras de HP, log, resultado e reinício da batalha.
@@ -35,21 +34,7 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 ## Observações sobre a batalha
 A arena é uma simulação didática própria, não uma reprodução integral das regras oficiais dos jogos. Usa movimentos e atributos da API e uma tabela de efetividade elemental. Efeitos, probabilidades e cálculo de dano foram simplificados para manter o combate rápido.
 
-Sprites animados usam a geração V (Black/White) fornecida pela PokéAPI e podem ter aparência pixelada. Quando a espécie não possui uma animação compatível, a arena usa a arte oficial com animações CSS. `battleAnimations.js` fornece efeitos pixelados no canvas por tipo de movimento; eles são efeitos visuais genéricos, não animações oficiais específicas de cada golpe. A preferência de movimento reduzido do sistema operacional desativa a sequência visual, mas mantém a aplicação do golpe e o combate. O script clássico é carregado antes de `app.js`.
-
-### Sprites corporais SpriteCollab
-
-Para Charizard (#0006), Lucario (#0448) e Greninja (#0658), a arena pode buscar `AnimData.xml` e spritesheets na revisão fixada do [PMDCollab/SpriteCollab](https://github.com/PMDCollab/SpriteCollab/tree/0babe7c2aeb7c494e420fca1964af8db78015205). Os quadros são exibidos em canvas e usados nas animações de repouso e de fim de batalha. Os clips fornecidos pelos artistas são reutilizáveis, não animações desenhadas individualmente para cada golpe. Durante os ataques, o app mantém o sprite-base visível e anima seu avanço/recuo com os efeitos do `BattleAnimator`; isso evita que pose e escala mudem para um desenho diferente no meio da ação.
-
-PhiBras é o único autor do projeto. Os nomes abaixo são atribuições dos artistas dos sprites exigidas pelas respectivas licenças, não coautores da aplicação. Créditos e licenças também são mostrados junto a cada combatente:
-
-- Charizard: Emboarger; ações permitidas pelo perfil `PMDCollab_1`.
-- Lucario: Emmuffin e Soulja; `CC BY-NC 4.0`.
-- Greninja: JHONY_REX e ◥θ┴θ◤; `CC BY-NC 4.0`.
-
-Os sprites CC BY-NC exigem atribuição e permitem apenas uso não comercial sob os termos da [licença](https://creativecommons.org/licenses/by-nc/4.0/). O projeto está sendo usado sem fins comerciais. Verifique os créditos e os termos vinculados na interface antes de redistribuir ou reutilizar qualquer arte; os arquivos não são incorporados ao projeto. Pikachu (#0025), Gengar (#0094) e outras espécies sem permissão/ação verificada não carregam essas spritesheets e usam o fallback da arena.
-
-As animações de ação dependem de conexão com o GitHub. Se os arquivos não carregarem, a interface informa a indisponibilidade e o combate continua com os efeitos e animações de fallback. A preferência `prefers-reduced-motion` também desativa a reprodução dos quadros corporais.
+Sprites animados usam a geração V (Black/White) da PokéAPI, com o sprite de costas para o jogador e o de frente para a IA. Quando o GIF não existe, são usados `sprites.back_default` / `sprites.front_default`; a ilustração oficial serve como fallback final. `battleAnimations.js` anima o próprio elemento do sprite com respiração, preparação, avanço/recuo, reação ao impacto e nocaute, além dos efeitos pixelados no canvas. Os efeitos são genéricos por tipo e arquétipo, não animações oficiais específicas de cada golpe. O sprite é uma imagem 2D inteira: não há rigging ou articulação de membros. A preferência de movimento reduzido preserva o combate e reduz as animações. O script clássico é carregado antes de `app.js`.
 
 ## Estrutura
 - `index.html` — estrutura e componentes da interface.

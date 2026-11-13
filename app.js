@@ -6,33 +6,6 @@ const statNames = {hp:"HP",attack:"Ataque",defense:"Defesa","special-attack":"At
 const statusNames = {burn:"QUEIMADO",poison:"ENVENENADO",paralysis:"PARALISADO",sleep:"DORMINDO",freeze:"CONGELADO"};
 const statusLabels = {burn:"Queimadura",poison:"Envenenamento",paralysis:"Paralisia",sleep:"Sono",freeze:"Congelamento"};
 const statusMoveNames = new Set(["will-o-wisp","fire-blast","flamethrower","ember","toxic","poison-powder","poison-gas","sludge-bomb","thunder-wave","thunderbolt","body-slam","thunder","hypnosis","sleep-powder","spore","sing","yawn","ice-beam","blizzard","ice-punch","freeze-dry"]);
-const idleByType = {
-  fire:["ember","hover","ready"],water:["sway","float","breathe"],electric:["spark","ready","hover"],
-  grass:["sway","breathe","hover"],ice:["float","focus"],fighting:["ready","heavy","spark"],
-  poison:["float","focus"],ground:["heavy","ready"],flying:["hover","float","sway"],
-  psychic:["focus","float","hover"],bug:["hover","spark"],rock:["heavy","ready"],
-  ghost:["float","focus"],dragon:["heavy","hover","ember"],dark:["float","ready"],
-  steel:["heavy","ready"],fairy:["hover","float","focus"]
-};
-const speciesIdleOverrides = {6:"ember",9:"heavy",25:"spark",94:"float",130:"heavy",133:"ready",150:"focus"};
-const spriteCollabRevision = "0babe7c2aeb7c494e420fca1964af8db78015205";
-const spriteCollabProfiles = {
-  6:{
-    actions:["Charge","Double","Faint","Hop","Hurt","Rotate","Shoot","Sleep","Strike","Swing"],
-    artists:"Emboarger",license:"PMDCollab_1",licenseFile:"LICENSE.PMDCollab_1.md"
-  },
-  448:{
-    actions:["Attack","Charge","Double","Hop","Hurt","Idle","QuickStrike","RearUp","Rotate","Rumble","Shoot","Sleep","Swing"],
-    artists:"Emmuffin, Soulja",license:"CC BY-NC 4.0",licenseFile:"LICENSE.CC_BY-NC_4.md"
-  },
-  658:{
-    actions:["Attack","Charge","Double","Hop","Hurt","Idle","QuickStrike","RearUp","Rotate","Shoot","Sleep","Swing"],
-    artists:"JHONY_REX, ◥θ┴θ◤",license:"CC BY-NC 4.0",licenseFile:"LICENSE.CC_BY-NC_4.md"
-  }
-};
-const spriteAnimationDataCache = new Map();
-const spriteAnimationImageCache = new Map();
-const idleVariants = ["breathe","sway","hover","ready","float","focus"];
 const typeChart = {
   normal:{rock:.5,ghost:0,steel:.5},fire:{fire:.5,water:.5,grass:2,ice:2,bug:2,rock:.5,dragon:.5,steel:2},
   water:{fire:2,water:.5,grass:.5,ground:2,rock:2,dragon:.5},electric:{water:2,electric:.5,grass:.5,ground:0,flying:2,dragon:.5},
@@ -52,7 +25,7 @@ const typeChart = {
 };
 const state = {
   all:[],visible:[],page:0,pageSize:20,filter:"",query:"",sort:"id",cache:new Map(),moveCache:new Map(),typeCache:new Map(),dexRequest:0,detailRequest:0,
-  battle:{fighters:[null,null],moves:[[],[]],pp:[new Map(),new Map()],hp:[0,0],maxHp:[0,0],statuses:[null,null],turn:0,over:false,busy:false,serial:0,logs:[],bodyAnimationTokens:[0,0]}
+  battle:{fighters:[null,null],moves:[[],[]],pp:[new Map(),new Map()],hp:[0,0],maxHp:[0,0],statuses:[null,null],turn:0,over:false,busy:false,serial:0,logs:[]}
 };
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -70,133 +43,18 @@ const imageOf = pokemon => pokemon.sprites?.other?.["official-artwork"]?.front_d
 const wait = ms => new Promise(resolve=>setTimeout(resolve,ms));
 const suffixFor = index => index===0?"One":"Two";
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const animationWait = ms => wait(reducedMotion()?35:ms);
-function motionProfileFor(pokemon){
-  if(speciesIdleOverrides[pokemon.id])return speciesIdleOverrides[pokemon.id];
-  const variants=idleByType[pokemon.types[0]?.type.name];
-  return variants?variants[pokemon.id%variants.length]:idleVariants[pokemon.id%idleVariants.length];
-}
 function battleSpriteFor(pokemon,index){
-  if(reducedMotion())return {src:imageOf(pokemon),animated:false};
-  const animated=pokemon.sprites.versions?.["generation-v"]?.["black-white"]?.animated;
-  const sprite=index===0?animated?.back_default:animated?.front_default;
-  const alternate=index===0?animated?.front_default:animated?.back_default;
-  if(sprite)return {src:sprite,animated:true};
-  if(alternate)return {src:alternate,animated:true};
-  return {src:imageOf(pokemon),animated:false};
-}
-function spriteCollabDirectory(pokemonId){
-  return `https://github.com/PMDCollab/SpriteCollab/tree/${spriteCollabRevision}/sprite/${String(pokemonId).padStart(4,"0")}`;
-}
-function spriteCollabRawFile(pokemonId,fileName){
-  return `https://raw.githubusercontent.com/PMDCollab/SpriteCollab/${spriteCollabRevision}/sprite/${String(pokemonId).padStart(4,"0")}/${fileName}`;
-}
-function renderSpriteCredit(index,pokemon,message=""){
-  const element=$("#spriteCredit"+suffixFor(index)),profile=spriteCollabProfiles[pokemon.id];
-  element.replaceChildren();
-  if(profile){
-    const source=document.createElement("a");source.href=spriteCollabDirectory(pokemon.id);source.target="_blank";source.rel="noreferrer";source.textContent=`SpriteCollab · ${profile.artists}`;
-    const license=document.createElement("a");license.href=`https://github.com/PMDCollab/SpriteCollab/blob/${spriteCollabRevision}/license_history/${profile.licenseFile}`;license.target="_blank";license.rel="noreferrer";license.textContent=profile.license;
-    element.append(source,document.createTextNode(" · "),license);
-  }else element.textContent="Sprites de ação licenciados indisponíveis para esta espécie.";
-  if(message)element.append(document.createTextNode(` · ${message}`));
-}
-async function loadSpriteAnimationData(pokemonId){
-  if(!spriteAnimationDataCache.has(pokemonId)){
-    const request=fetch(spriteCollabRawFile(pokemonId,"AnimData.xml")).then(async response=>{
-      if(!response.ok)throw new Error(`SpriteCollab AnimData.xml respondeu com HTTP ${response.status}.`);
-      const xml=new DOMParser().parseFromString(await response.text(),"application/xml");
-      if(xml.querySelector("parsererror"))throw new Error("O AnimData.xml de SpriteCollab é inválido.");
-      const animations=new Map();
-      xml.querySelectorAll("Anims > Anim").forEach(element=>{
-        const read=name=>element.querySelector(name)?.textContent?.trim()||"";
-        const value={name:read("Name"),copyOf:read("CopyOf"),frameWidth:Number(read("FrameWidth")),frameHeight:Number(read("FrameHeight")),rushFrame:read("RushFrame")===""?null:Number(read("RushFrame")),hitFrame:read("HitFrame")===""?null:Number(read("HitFrame")),returnFrame:read("ReturnFrame")===""?null:Number(read("ReturnFrame")),durations:[...element.querySelectorAll("Durations > Duration")].map(duration=>Number(duration.textContent))};
-        if(value.name)animations.set(value.name,value);
-      });
-      if(!animations.size)throw new Error("O AnimData.xml não contém animações.");
-      return animations;
-    });
-    spriteAnimationDataCache.set(pokemonId,request);
-  }
-  try{return await spriteAnimationDataCache.get(pokemonId)}
-  catch(error){spriteAnimationDataCache.delete(pokemonId);throw error}
-}
-function resolveSpriteAnimation(animations,name,visited=new Set()){
-  if(!name||visited.has(name))return null;
-  visited.add(name);
-  const animation=animations.get(name);
-  if(!animation)return null;
-  if(animation.copyOf)return resolveSpriteAnimation(animations,animation.copyOf,visited);
-  if(!animation.frameWidth||!animation.frameHeight||!animation.durations.length)return null;
-  return animation;
-}
-async function loadSpriteAnimationImage(pokemonId,actionName){
-  const url=spriteCollabRawFile(pokemonId,`${actionName}-Anim.png`);
-  if(!spriteAnimationImageCache.has(url)){
-    const request=new Promise((resolve,reject)=>{
-      const image=new Image();
-      image.onload=()=>resolve(image);
-      image.onerror=()=>reject(new Error(`Não foi possível carregar ${actionName}-Anim.png do SpriteCollab.`));
-      image.src=url;
-    });
-    spriteAnimationImageCache.set(url,request);
-  }
-  try{return await spriteAnimationImageCache.get(url)}
-  catch(error){spriteAnimationImageCache.delete(url);throw error}
-}
-function spriteCanvasFor(index){
-  return $("#bodyCanvas"+suffixFor(index));
-}
-function restoreBattleSprite(index){
-  state.battle.bodyAnimationTokens[index]++;
-  const canvas=spriteCanvasFor(index);
-  canvas.hidden=true;canvas.dataset.action="";canvas.dataset.frame="";
-  $("#sprite"+suffixFor(index)).hidden=false;
-}
-async function playSpriteCollabAnimation(index,actionName,{loop=false,serial=state.battle.serial,onFrame=null}={}){
-  const pokemon=state.battle.fighters[index],profile=spriteCollabProfiles[pokemon?.id];
-  if(!profile||!profile.actions.includes(actionName)||reducedMotion()||(actionName==="Idle"&&state.battle.over))return false;
-  let animations,animation,image;
-  try{
-    animations=await loadSpriteAnimationData(pokemon.id);
-    animation=resolveSpriteAnimation(animations,actionName);
-    if(!animation)return false;
-    image=await loadSpriteAnimationImage(pokemon.id,animation.name);
-  }catch(error){
-    if(serial===state.battle.serial){
-      console.error(`Falha ao carregar a animação ${actionName} de ${pokemon.name}:`,error);
-      renderSpriteCredit(index,pokemon,"animação indisponível; usando fallback");
-    }
-    return false;
-  }
-  if(serial!==state.battle.serial||(actionName==="Idle"&&state.battle.over))return false;
-  const direction=index===0?2:6,columns=Math.floor(image.naturalWidth/animation.frameWidth),rows=Math.floor(image.naturalHeight/animation.frameHeight);
-  if(columns<animation.durations.length||direction>=rows){
-    const error=new Error(`A spritesheet ${animation.name}-Anim.png não corresponde aos frames do AnimData.xml.`);
-    console.error(error);renderSpriteCredit(index,pokemon,"frames incompatíveis; usando fallback");return false;
-  }
-  const canvas=spriteCanvasFor(index),context=canvas.getContext("2d"),fallback=$("#sprite"+suffixFor(index));
-  const token=++state.battle.bodyAnimationTokens[index];
-  canvas.width=animation.frameWidth;canvas.height=animation.frameHeight;canvas.hidden=false;fallback.hidden=true;
-  canvas.dataset.action=animation.name;canvas.dataset.frame="0";
-  context.imageSmoothingEnabled=false;
-  const isCurrent=()=>serial===state.battle.serial&&token===state.battle.bodyAnimationTokens[index]&&!(actionName==="Idle"&&state.battle.over);
-  do{
-    for(let frame=0;frame<animation.durations.length;frame++){
-      if(!isCurrent())return false;
-      context.clearRect(0,0,canvas.width,canvas.height);
-      context.drawImage(image,frame*animation.frameWidth,direction*animation.frameHeight,animation.frameWidth,animation.frameHeight,0,0,animation.frameWidth,animation.frameHeight);
-      canvas.dataset.frame=String(frame);
-      if(onFrame)onFrame({frame,animation});
-      if(!loop&&frame===animation.durations.length-1)break;
-      await animationWait(Math.max(16,animation.durations[frame]*(1000/30)));
-    }
-  }while(loop&&isCurrent());
-  return isCurrent();
-}
-async function startSpriteCollabIdle(index,serial){
-  const pokemon=state.battle.fighters[index],profile=spriteCollabProfiles[pokemon?.id];
-  if(profile?.actions.includes("Idle"))await playSpriteCollabAnimation(index,"Idle",{loop:true,serial});
+  const sprites=pokemon.sprites;
+  const animated=sprites.versions?.["generation-v"]?.["black-white"]?.animated;
+  const directional=index===0?sprites.back_default:sprites.front_default;
+  const preferred=index===0?animated?.back_default:animated?.front_default;
+  const useAnimation=!reducedMotion()&&Boolean(preferred);
+  const src=useAnimation?preferred:directional||imageOf(pokemon);
+  const fallbacks=[directional,imageOf(pokemon)].filter((url,index,urls)=>url&&url!==src&&urls.indexOf(url)===index);
+  return {
+    src,
+    fallbacks
+  };
 }
 
 async function getPokemon(id){
@@ -360,25 +218,28 @@ function moveScore(move,attacker){
 function renderFighters(){
   const battle=state.battle;animator.cancel();
   [0,1].forEach(index=>{
-    const suffix=suffixFor(index),pokemon=battle.fighters[index],stage=$("#stage"+suffix),image=$("#sprite"+suffix),canvas=$("#bodyCanvas"+suffix),profile=spriteCollabProfiles[pokemon.id];
-    const sprite=battleSpriteFor(pokemon,index),motion=motionProfileFor(pokemon);
-    canvas.hidden=true;image.hidden=false;canvas.dataset.action="";canvas.dataset.frame="";
-    $("#name"+suffix).textContent=title(pokemon.name);image.src=sprite.src;image.alt=title(pokemon.name);
-    image.className=`sprite-image${sprite.animated?" is-animated-sprite":""}`;
-    image.onerror=()=>{image.onerror=null;image.classList.remove("is-animated-sprite");image.src=imageOf(pokemon)};
-    stage.className=`sprite-stage${profile?" has-action-sprites":` motion-${motion}`} facing-${index===0?"right":"left"}${sprite.animated?" has-animated-sprite":""}`;
+    const suffix=suffixFor(index),pokemon=battle.fighters[index],stage=$("#stage"+suffix),image=$("#sprite"+suffix);
+    const sprite=battleSpriteFor(pokemon,index);
+    let fallbackIndex=0;
+    $("#name"+suffix).textContent=title(pokemon.name);image.alt=title(pokemon.name);
+    image.className="sprite-image";
+    image.onerror=()=>{
+      const fallback=sprite.fallbacks[fallbackIndex++];
+      if(fallback){image.src=fallback;return}
+      image.onerror=null;
+    };
+    image.src=sprite.src;
+    stage.className=`sprite-stage facing-${index===0?"right":"left"}`;
     $("#types"+suffix).innerHTML=pokemon.types.map(type=>badge(type.type.name)).join("");
-    renderSpriteCredit(index,pokemon);
     updateHealth(index);renderStatus(index);
     const fighter=$("#battleFighter"+suffix);
-    fighter.classList.remove("acting","fainted","victorious");
-    stage.classList.remove("fainted","victorious");
+    fighter.classList.remove("acting","victorious");
+    stage.classList.remove("victorious","pbfx-ko-complete");
     const serial=battle.serial;
     void stage.offsetWidth;stage.classList.add("entering");
     stage.addEventListener("animationend",event=>{
       if(event.target===stage&&serial===state.battle.serial)stage.classList.remove("entering");
     },{once:true});
-    void startSpriteCollabIdle(index,serial);
   });
 }
 function updateHealth(index){
@@ -537,7 +398,7 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
   fighter.classList.add("acting");
   try{
     if(selfTarget){
-      await animationWait(260);
+      await wait(260);
       if(serial===state.battle.serial)collision?.();
       return;
     }
@@ -545,6 +406,7 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
       attackerEl:$("#stage"+suffixFor(attackerIndex)),
       targetEl:$("#stage"+suffixFor(targetIndex)),
       moveType:typeNames[move.type.name]||move.type.name,
+      moveCategory:move.damage_class.name,
       onImpact:collision
     });
   }finally{
@@ -555,16 +417,9 @@ async function finishBattle(winnerIndex,loserIndex){
   const battle=state.battle,serial=battle.serial; battle.over=true;battle.busy=false;
   const winner=battle.fighters[winnerIndex],loser=battle.fighters[loserIndex];
   const winnerStage=$("#stage"+suffixFor(winnerIndex)),loserStage=$("#stage"+suffixFor(loserIndex));
-  const fighter=$("#battleFighter"+suffixFor(loserIndex));
-  const winnerProfile=spriteCollabProfiles[winner.id],loserProfile=spriteCollabProfiles[loser.id];
-  const [winnerAnimated,loserAnimated]=await Promise.all([
-    winnerProfile?.actions.includes("Hop")?playSpriteCollabAnimation(winnerIndex,"Hop",{serial}):false,
-    loserProfile?.actions.includes("Faint")?playSpriteCollabAnimation(loserIndex,"Faint",{serial}):false
-  ]);
+  await animator.playKO(loserStage);
   if(serial!==battle.serial)return;
-  if(!winnerAnimated){restoreBattleSprite(winnerIndex);winnerStage.classList.add("victorious")}
-  fighter.classList.add("fainted");
-  if(!loserAnimated){restoreBattleSprite(loserIndex);loserStage.classList.add("fainted")}
+  winnerStage.classList.add("victorious");
   addLog(`<strong>${title(loser.name)}</strong> desmaiou! <strong>${title(winner.name)}</strong> venceu a batalha!`);
   $("#turnIndicator").textContent=winnerIndex===0?"VITÓRIA":"DERROTA";renderMoves();
 }
