@@ -19,12 +19,12 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 - Paginação.
 - Modal com imagem, tipos, altura, peso, experiência, habilidades e atributos-base.
 - Arena com seleção do Pokémon do jogador e do adversário controlado pela IA.
-- Até quatro movimentos disponíveis por combatente, com PP e escolha estratégica da IA.
+- Até quatro movimentos disponíveis por combatente, priorizando coreografias distintas, com PP e escolha estratégica da IA.
 - Cálculo de dano com atributos, STAB, precisão, variação aleatória e efetividade elemental.
 - Queimadura, envenenamento, paralisia, sono e congelamento, com efeitos para os dois combatentes.
-- `BattleAnimator` usa nome, tipo, categoria, poder, prioridade, dreno e metadados do golpe, além das espécies atacante e alvo, para individualizar as animações.
+- `BattleAnimator` usa os metadados oficiais do golpe (nome, tipo, categoria, poder, prioridade, dreno, alvo e meta), além do nome, formato corporal e tipos dos dois Pokémon.
 - Sprites animados de batalha da geração V da PokéAPI; sprites posicionais de costas/frente e ilustração oficial como alternativas.
-- Rig articulado 2D com três juntas sobrepostas (base, tronco e cabeça/asas), usando o próprio sprite da PokéAPI em cada camada.
+- Rig 2D hierárquico de três pivôs (base, tronco e cabeça), aplicado a uma única imagem íntegra do sprite, sem recortes `clip-path`.
 - Idle articulado, preparação, investida/recuo, reação a impacto e nocaute sincronizados com a sequência de ataques.
 - Sequência de ataque, efeito, impacto e dissipação; HP/status são atualizados no callback de impacto.
 - Coordenadas dos efeitos calculadas pelos limites visuais dos combatentes, com reação do alvo e tremor da arena.
@@ -33,14 +33,14 @@ Também é possível abrir `index.html` diretamente no navegador, mas um servido
 - Estados de carregamento, erro e ausência de resultados na Pokédex.
 
 ## Observações sobre a batalha
-A arena é uma simulação didática própria, não uma reprodução integral das regras oficiais dos jogos. Usa movimentos e atributos da API e uma tabela de efetividade elemental. Efeitos, probabilidades e cálculo de dano foram simplificados para manter o combate rápido.
+A arena é uma simulação didática própria, não uma reprodução integral das regras oficiais dos jogos. Usa movimentos, atributos e formato corporal da PokéAPI, além de uma tabela de efetividade elemental. Efeitos, probabilidades e cálculo de dano foram simplificados para manter o combate rápido. A aleatoriedade usada na precisão, nos status e na variação de dano pertence às regras simuladas do combate; a seleção e a geometria das animações não usam hash nem geração aleatória.
 
-Sprites animados usam a geração V (Black/White) da PokéAPI, com o sprite de costas para o jogador e o de frente para a IA. Quando o GIF não existe, são usados `sprites.back_default` / `sprites.front_default`; a ilustração oficial serve como fallback final. `ArticulatedRig` duplica o mesmo sprite em três camadas recortadas e aninhadas para permitir poses independentes de base, tronco e cabeça/asas sem desenhar o Pokémon em canvas nem substituir a imagem durante o ataque. Os movimentos são aproximações 2D genéricas: o recorte não conhece a anatomia real de cada espécie, portanto não oferece articulação individual de patas, braços, asas ou cauda. As animações combinam a assinatura do golpe com o perfil da espécie, usando os metadados da PokéAPI para gerar a coreografia e os efeitos; não são animações oficiais da API. Os scripts clássicos são carregados na ordem `battleAnimations.js` antes de `app.js`.
+Sprites animados usam a geração V (Black/White) da PokéAPI, com o sprite de costas para o jogador e o de frente para a IA. Quando o GIF não existe, são usados `sprites.back_default` / `sprites.front_default`; a ilustração oficial serve como fallback final. `app.js` também consulta `pokemon.species.url` e envia o formato corporal e os tipos oficiais para o rig. O motor v4 escolhe coreografias por catálogo explícito de golpes e regras baseadas nos metadados da API, sem hash ou aleatoriedade nos efeitos visuais. O rig preserva o sprite inteiro: seus pivôs transformam a imagem como um todo, não separam membros individuais. As animações são aproximações visuais próprias, não animações oficiais da PokéAPI. O motor está em `battleAnimations.js` e é carregado antes de `app.js`.
 
 ## Estrutura
 - `index.html` — estrutura e componentes da interface.
 - `style.css` — identidade visual dark futurista e responsividade.
-- `battleAnimations.js` — rig articulado e efeitos de ataque em pixel art.
+- `battleAnimations.js` — motor v4 de coreografias determinísticas, rig de pivôs e efeitos de ataque em pixel art.
 - `app.js` — integração com API, pesquisa, detalhes e lógica da arena.
 
 Não é necessário instalar dependências ou configurar chave de API.

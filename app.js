@@ -24,7 +24,7 @@ const typeChart = {
   fairy:{fire:.5,fighting:2,poison:.5,dragon:2,dark:2,steel:.5}
 };
 const state = {
-  all:[],visible:[],page:0,pageSize:20,filter:"",query:"",sort:"id",cache:new Map(),moveCache:new Map(),typeCache:new Map(),dexRequest:0,detailRequest:0,
+  all:[],visible:[],page:0,pageSize:20,filter:"",query:"",sort:"id",cache:new Map(),moveCache:new Map(),speciesCache:new Map(),typeCache:new Map(),dexRequest:0,detailRequest:0,
   battle:{fighters:[null,null],moves:[[],[]],pp:[new Map(),new Map()],hp:[0,0],maxHp:[0,0],statuses:[null,null],turn:0,over:false,busy:false,serial:0,logs:[]}
 };
 const $ = selector => document.querySelector(selector);
@@ -65,6 +65,17 @@ async function getPokemon(id){
   const key=String(id);
   if(!state.cache.has(key))state.cache.set(key,api(`/pokemon/${key}`));
   try{return await state.cache.get(key)}catch(error){state.cache.delete(key);throw error}
+}
+async function getPokemonSpecies(url){
+  if(!url)throw new Error("A PokéAPI não retornou o endpoint da espécie.");
+  const speciesUrl=new URL(url),apiUrl=new URL(API);
+  const speciesPrefix=`${apiUrl.pathname}/pokemon-species/`;
+  if(speciesUrl.origin!==apiUrl.origin||!speciesUrl.pathname.startsWith(speciesPrefix)){
+    throw new Error("O endpoint da espécie não pertence à PokéAPI.");
+  }
+  const path=speciesUrl.pathname.slice(apiUrl.pathname.length),key=speciesUrl.href;
+  if(!state.speciesCache.has(key))state.speciesCache.set(key,api(path));
+  try{return await state.speciesCache.get(key)}catch(error){state.speciesCache.delete(key);throw error}
 }
 async function getMove(name){
   if(!state.moveCache.has(name))state.moveCache.set(name,api(`/move/${name}`));
@@ -176,8 +187,21 @@ async function setupBattle(){
       else{$("#fighterOne").value="6";$("#fighterTwo").value="9"}
       showToast("Escolha dois Pokémon diferentes.");return;
     }
-    const fighters=await Promise.all(ids.map(getPokemon));
+    const pokemonData=await Promise.all(ids.map(getPokemon));
     if(serial!==battle.serial)return;
+    const speciesFailures=[];
+    const fighters=await Promise.all(pokemonData.map(async pokemon=>{
+      try{
+        const speciesData=await getPokemonSpecies(pokemon.species?.url);
+        return {...pokemon,speciesData,speciesShape:speciesData.shape?.name||""};
+      }catch(error){
+        speciesFailures.push(pokemon.name);
+        console.error(`Falha ao carregar a anatomia de ${title(pokemon.name)}:`,error);
+        return {...pokemon,speciesData:null,speciesShape:""};
+      }
+    }));
+    if(serial!==battle.serial)return;
+    if(speciesFailures.length)showToast(`Anatomia indisponível para: ${speciesFailures.map(title).join(", ")}.`);
     battle.fighters=fighters;battle.maxHp=fighters.map(pokemon=>Math.max(50,pokemon.stats.find(stat=>stat.stat.name==="hp").base_stat*2+50));
     battle.hp=[...battle.maxHp];battle.statuses=[null,null];battle.turn=0;battle.over=false;battle.busy=false;battle.logs=[];battle.pp=[new Map(),new Map()];
     renderFighters();addLog(`A batalha começou: <strong>${title(fighters[0].name)}</strong> vs <strong>${title(fighters[1].name)}</strong>.`);
@@ -191,8 +215,9 @@ async function setupBattle(){
 }
 async function loadFighterMoves(index,serial){
   const pokemon=state.battle.fighters[index];
-  const names=pokemon.moves.map(entry=>entry.move.name);
-  const selectedNames=[...names.slice(0,18),...names.filter(name=>statusMoveNames.has(name)).slice(0,8)];
+  const names=[...new Set(pokemon.moves.map(entry=>entry.move.name))];
+  const sampledNames=sampleMoveNames(names,18);
+  const selectedNames=[...sampledNames,...names.filter(name=>statusMoveNames.has(name)).slice(0,8)];
   const results=await Promise.all([...new Set(selectedNames)].map(async name=>{try{return await getMove(name)}catch(error){console.error(`Falha ao carregar o movimento ${name}:`,error);return null}}));
   if(serial!==state.battle.serial)return;
   const detailedMoves=results.filter(Boolean).map(move=>({
@@ -210,10 +235,31 @@ async function loadFighterMoves(index,serial){
   unique.sort((a,b)=>moveScore(b,index)-moveScore(a,index));
   const hasStatusEffect=move=>Boolean(statusNames[move.meta?.ailment?.name]);
   const ailmentMove=unique.find(move=>move.damageClass==="status"&&hasStatusEffect(move)&&move.meta.category?.name==="ailment")||unique.find(move=>hasStatusEffect(move)&&(move.meta.ailment_chance??0)>0);
-  const selected=unique.slice(0,4);
-  if(ailmentMove&&!selected.includes(ailmentMove))selected.splice(3,1,ailmentMove);
+  const selected=[],signatures=new Set();
+  for(const move of unique){
+    if(selected.length===4)break;
+    if(move.damageClass==="status"&&selected.some(selectedMove=>selectedMove.damageClass==="status"))continue;
+    const signature=animator.getMoveAnimationSignature(move);
+    if(signatures.has(signature))continue;
+    selected.push(move);signatures.add(signature);
+  }
+  if(ailmentMove&&!selected.includes(ailmentMove)){
+    const signature=animator.getMoveAnimationSignature(ailmentMove);
+    if(!signatures.has(signature)){
+      if(selected.length===4){const replaced=selected.pop();signatures.delete(animator.getMoveAnimationSignature(replaced))}
+      selected.push(ailmentMove);signatures.add(signature);
+    }
+  }
+  for(const move of unique){
+    if(selected.length===4)break;
+    if(!selected.includes(move))selected.push(move);
+  }
   state.battle.moves[index]=selected;
   state.battle.moves[index].forEach(move=>state.battle.pp[index].set(move.name,move.pp));
+}
+function sampleMoveNames(names,limit){
+  if(names.length<=limit)return names;
+  return Array.from({length:limit},(_,index)=>names[Math.round(index*(names.length-1)/(limit-1))]);
 }
 function moveScore(move,attacker){
   const battle=state.battle;
@@ -237,7 +283,7 @@ function renderFighters(){
     const sprite=battleSpriteFor(pokemon,index);
     $("#name"+suffix).textContent=title(pokemon.name);rig.placeholder.alt=title(pokemon.name);
     rig.stopIdle();
-    setRigSprite(rig,sprite.src,sprite.fallbacks,pokemon.name);
+    setRigSprite(rig,sprite.src,sprite.fallbacks,pokemon);
     stage.className=`sprite-stage facing-${index===0?"right":"left"}`;
     $("#types"+suffix).innerHTML=pokemon.types.map(type=>badge(type.type.name)).join("");
     updateHealth(index);renderStatus(index);
@@ -251,24 +297,32 @@ function renderFighters(){
     },{once:true});
   });
 }
-function setRigSprite(rig,src,fallbacks,pokemonName){
-  const images=[rig.placeholder,rig.baseImg,rig.torsoImg,rig.headImg];
+function setRigSprite(rig,src,fallbacks,pokemon){
+  const pokemonName=pokemon.name;
+  if(typeof rig?.setSprite!=="function")throw new Error(`O rig de ${title(pokemonName)} não oferece setSprite().`);
+  const images=[rig.spriteImg,rig.baseImg,rig.torsoImg,rig.headImg].filter((image,index,list)=>image&&list.indexOf(image)===index);
+  if(!images.length)throw new Error(`O rig de ${title(pokemonName)} não possui uma imagem de sprite atualizável.`);
+  const speciesInfo={
+    name:pokemon.name,
+    shape:pokemon.speciesShape||"",
+    types:pokemon.types.map(entry=>entry.type.name)
+  };
+  const fallbackQueue=[...fallbacks];
   let token=rig.spriteLoadToken||0;
   const load=nextSrc=>{
     const attempt=++token;
     rig.spriteLoadToken=attempt;
     let failed=false;
-    images.forEach(image=>{
-      image.onerror=()=>{
-        if(attempt!==rig.spriteLoadToken||failed)return;
-        failed=true;
-        const fallback=fallbacks.shift();
-        if(fallback){load(fallback);return}
-        images.forEach(layer=>{layer.onerror=null});
-        console.error(`Não foi possível carregar o sprite de ${title(pokemonName)}.`,new Error(nextSrc));
-      };
-    });
-    rig.setSprite(nextSrc,pokemonName);
+    const handleError=()=>{
+      if(attempt!==rig.spriteLoadToken||failed)return;
+      failed=true;
+      images.forEach(image=>{image.onerror=null});
+      const fallback=fallbackQueue.shift();
+      if(fallback){load(fallback);return}
+      console.error(`Não foi possível carregar o sprite de ${title(pokemonName)}.`,new Error(nextSrc));
+    };
+    images.forEach(image=>{image.onerror=handleError});
+    rig.setSprite(nextSrc,speciesInfo);
   };
   load(src);
 }
@@ -433,13 +487,18 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
       attackerEl:battleRigs[attackerIndex].root,
       targetEl:battleRigs[targetIndex].root,
       attackerName:attacker.name,
+      attackerShape:attacker.speciesShape||"",
+      attackerTypes:attacker.types.map(entry=>entry.type.name),
       targetName:target.name,
+      targetShape:target.speciesShape||"",
+      targetTypes:target.types.map(entry=>entry.type.name),
       moveName:move.name,
       moveType:move.type,
       damageClass:move.damageClass,
       power:move.power,
       priority:move.priority,
       drain:move.drain,
+      target:move.target?.name||"",
       meta:move.meta,
       onImpact:collision
     });

@@ -347,7 +347,7 @@ body::before {
 .battlefield {
   position: relative;
   display: grid;
-  overflow: hidden;
+  overflow: visible;
   height: 370px;
   grid-template-columns: 1fr 1fr;
   border: 1px solid #44372a;
@@ -374,6 +374,7 @@ body::before {
 .battle-grid {
   position: absolute;
   inset: 52% -10% -38%;
+  pointer-events: none;
   background-image:
     linear-gradient(rgba(255,179,71,.19) 1px,transparent 1px),
     linear-gradient(90deg,rgba(255,179,71,.19) 1px,transparent 1px);
@@ -420,6 +421,7 @@ body::before {
 .sprite-stage {
   position: absolute;
   z-index: 2;
+  overflow: visible;
   bottom: 36px;
   left: 8%;
   display: grid;
@@ -472,9 +474,6 @@ body::before {
   width: auto;
   height: auto;
 }
-.rig-joint-base > .rig-layer-base { clip-path: inset(64% -20% 0% -20%); }
-.rig-joint-torso > .sprite-image { clip-path: inset(32% -20% 30% -20%); }
-.rig-joint-head > .sprite-image { clip-path: inset(-10% -20% 62% -20%); }
 .sprite-image[hidden] { display: none !important; }
 .sprite-stage.entering.facing-right { animation: enter-from-left .72s cubic-bezier(.16,.78,.22,1) both; }
 .sprite-stage.entering.facing-left { animation: enter-from-right .72s cubic-bezier(.16,.78,.22,1) both; }
