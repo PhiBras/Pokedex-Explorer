@@ -31,10 +31,10 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const arenaContainer = $("#battlefield");
 const battleRigs = [
-  new window.ArticulatedRig($("#spriteOne"),1),
-  new window.ArticulatedRig($("#spriteTwo"),-1)
+  new window.ArticulatedRig($("#spriteOne")),
+  new window.ArticulatedRig($("#spriteTwo"))
 ];
-const animator = new window.BattleAnimator(arenaContainer,{rigs:battleRigs});
+const animator = new window.BattleAnimator(arenaContainer);
 
 async function api(path){
   const response=await fetch(`${API}${path}`);
@@ -166,7 +166,7 @@ document.addEventListener("keydown",event=>{if(event.key==="Escape")closeModal()
 $("#fighterOne").addEventListener("change",setupBattle);$("#fighterTwo").addEventListener("change",setupBattle);
 $("#restartBattle").addEventListener("click",setupBattle);
 async function setupBattle(){
-  const battle=state.battle,serial=++battle.serial;animator.cancel();
+  const battle=state.battle,serial=++battle.serial;
   battle.busy=true;$("#moveButtons").innerHTML='<div class="loading-state"><span class="loader"></span> Preparando a batalha...</div>';
   try{
     const ids=[$("#fighterOne").value,$("#fighterTwo").value];
@@ -195,11 +195,18 @@ async function loadFighterMoves(index,serial){
   const selectedNames=[...names.slice(0,18),...names.filter(name=>statusMoveNames.has(name)).slice(0,8)];
   const results=await Promise.all([...new Set(selectedNames)].map(async name=>{try{return await getMove(name)}catch(error){console.error(`Falha ao carregar o movimento ${name}:`,error);return null}}));
   if(serial!==state.battle.serial)return;
-  const candidates=results.filter(move=>move&&move.pp>0&&(move.damage_class.name!=="status"||statusNames[move.meta?.ailment?.name]||move.meta?.healing));
+  const detailedMoves=results.filter(Boolean).map(move=>({
+    ...move,
+    name:move.name,
+    type:move.type.name.toUpperCase(),
+    damageClass:move.damage_class.name,
+    power:move.power||0
+  }));
+  const candidates=detailedMoves.filter(move=>move.pp>0&&(move.damageClass!=="status"||statusNames[move.meta?.ailment?.name]||move.meta?.healing));
   const unique=[...new Map(candidates.map(move=>[move.name,move])).values()];
   unique.sort((a,b)=>moveScore(b,index)-moveScore(a,index));
   const hasStatusEffect=move=>Boolean(statusNames[move.meta?.ailment?.name]);
-  const ailmentMove=unique.find(move=>move.damage_class.name==="status"&&hasStatusEffect(move)&&move.meta.category?.name==="ailment")||unique.find(move=>hasStatusEffect(move)&&(move.meta.ailment_chance??0)>0);
+  const ailmentMove=unique.find(move=>move.damageClass==="status"&&hasStatusEffect(move)&&move.meta.category?.name==="ailment")||unique.find(move=>hasStatusEffect(move)&&(move.meta.ailment_chance??0)>0);
   const selected=unique.slice(0,4);
   if(ailmentMove&&!selected.includes(ailmentMove))selected.splice(3,1,ailmentMove);
   state.battle.moves[index]=selected;
@@ -212,27 +219,22 @@ function moveScore(move,attacker){
     const healAmount=Math.floor(battle.maxHp[attacker]*move.meta.healing/100);
     return Math.min(missingHp,healAmount)*2;
   }
-  if(move.damage_class.name==="status"){
+  if(move.damageClass==="status"){
     return statusNames[move.meta?.ailment?.name]&&!battle.statuses[1-attacker]?45:0;
   }
   const accuracy=(move.accuracy??100)/100;
-  const stab=battle.fighters[attacker].types.some(type=>type.type.name===move.type.name)?1.5:1;
-  return (move.power||0)*accuracy*effectiveness(move.type.name,battle.fighters[1-attacker])*stab;
+  const moveType=move.type.toLowerCase();
+  const stab=battle.fighters[attacker].types.some(fighterType=>fighterType.type.name===moveType)?1.5:1;
+  return (move.power||0)*accuracy*effectiveness(moveType,battle.fighters[1-attacker])*stab;
 }
 function renderFighters(){
-  const battle=state.battle;animator.cancel();
+  const battle=state.battle;
   [0,1].forEach(index=>{
     const suffix=suffixFor(index),pokemon=battle.fighters[index],stage=$("#stage"+suffix),rig=battleRigs[index];
     const sprite=battleSpriteFor(pokemon,index);
-    let fallbacks=[...sprite.fallbacks];
-    $("#name"+suffix).textContent=title(pokemon.name);rig.baseImage.alt=title(pokemon.name);
-    rig.onSpriteError=failedSrc=>{
-      const fallback=fallbacks.shift();
-      if(fallback){rig.setSprite(fallback);rig.startIdle();return}
-      rig.onSpriteError=null;
-      console.error(`Não foi possível carregar o sprite de ${title(pokemon.name)}.`,new Error(failedSrc));
-    };
-    rig.setSprite(sprite.src);
+    $("#name"+suffix).textContent=title(pokemon.name);rig.placeholder.alt=title(pokemon.name);
+    rig.stopIdle();
+    setRigSprite(rig,sprite.src,sprite.fallbacks,title(pokemon.name));
     rig.startIdle();
     stage.className=`sprite-stage facing-${index===0?"right":"left"}`;
     $("#types"+suffix).innerHTML=pokemon.types.map(type=>badge(type.type.name)).join("");
@@ -246,6 +248,27 @@ function renderFighters(){
       if(event.target===stage&&serial===state.battle.serial)stage.classList.remove("entering");
     },{once:true});
   });
+}
+function setRigSprite(rig,src,fallbacks,pokemonName){
+  const images=[rig.placeholder,rig.baseImg,rig.torsoImg,rig.headImg];
+  let token=rig.spriteLoadToken||0;
+  const load=nextSrc=>{
+    const attempt=++token;
+    rig.spriteLoadToken=attempt;
+    let failed=false;
+    images.forEach(image=>{
+      image.onerror=()=>{
+        if(attempt!==rig.spriteLoadToken||failed)return;
+        failed=true;
+        const fallback=fallbacks.shift();
+        if(fallback){load(fallback);return}
+        images.forEach(layer=>{layer.onerror=null});
+        console.error(`Não foi possível carregar o sprite de ${pokemonName}.`,new Error(nextSrc));
+      };
+    });
+    rig.setSprite(nextSrc);
+  };
+  load(src);
 }
 function updateHealth(index){
   const battle=state.battle,suffix=index===0?"One":"Two",percent=Math.max(0,battle.hp[index]/battle.maxHp[index]*100);
@@ -271,8 +294,8 @@ async function renderMoves(){
     container.querySelector("[data-struggle]").addEventListener("click",()=>playerAction(struggleMove()));return;
   }
   container.innerHTML=moves.map((move,index)=>{
-    const pp=battle.pp[0].get(move.name)||0,kind=move.damage_class.name==="physical"?"Físico":move.damage_class.name==="special"?"Especial":"Status";
-    return `<button class="move-button" data-move="${index}" ${pp<=0?"disabled":""}><span><strong>${title(move.name)}</strong><small>${typeNames[move.type.name]||title(move.type.name)} · ${kind} · PP ${pp}/${move.pp}</small></span><span class="move-power">${move.power??"—"}</span></button>`;
+    const pp=battle.pp[0].get(move.name)||0,kind=move.damageClass==="physical"?"Físico":move.damageClass==="special"?"Especial":"Status",type=move.type.toLowerCase();
+    return `<button class="move-button" data-move="${index}" ${pp<=0?"disabled":""}><span><strong>${title(move.name)}</strong><small>${typeNames[type]||title(type)} · ${kind} · PP ${pp}/${move.pp}</small></span><span class="move-power">${move.power||"—"}</span></button>`;
   }).join("");
   $$(".move-button").forEach(button=>button.addEventListener("click",()=>playerAction(moves[Number(button.dataset.move)])));
   $("#turnIndicator").textContent="SUA VEZ";
@@ -282,12 +305,13 @@ function effectiveness(moveType,defender){
 }
 function calculateDamage(move,attacker,defender){
   if(!move.power)return 0;
-  const attackName=move.damage_class.name==="special"?"special-attack":"attack";
-  const defenseName=move.damage_class.name==="special"?"special-defense":"defense";
+  const attackName=move.damageClass==="special"?"special-attack":"attack";
+  const defenseName=move.damageClass==="special"?"special-defense":"defense";
   const attack=attacker.stats.find(stat=>stat.stat.name===attackName).base_stat;
   const defense=defender.stats.find(stat=>stat.stat.name===defenseName).base_stat;
-  const multiplier=effectiveness(move.type.name,defender);
-  const stab=attacker.types.some(type=>type.type.name===move.type.name)?1.5:1;
+  const moveType=move.type.toLowerCase();
+  const multiplier=effectiveness(moveType,defender);
+  const stab=attacker.types.some(fighterType=>fighterType.type.name===moveType)?1.5:1;
   const accuracy=(move.accuracy??100)/100;
   if(Math.random()>=accuracy||multiplier===0)return {damage:0,multiplier,missed:multiplier!==0};
   const variance=.85+Math.random()*.15;
@@ -311,11 +335,11 @@ function chooseAiMove(){
   if(!moves.length)return struggleMove();
   return moves.map(move=>{
     let score=moveScore(move,1);
-    if(statusNames[move.meta?.ailment?.name]&&!battle.statuses[0])score+=move.damage_class.name==="status"&&move.meta.category?.name==="ailment"?50:(move.meta.ailment_chance||0)*.25;
+    if(statusNames[move.meta?.ailment?.name]&&!battle.statuses[0])score+=move.damageClass==="status"&&move.meta.category?.name==="ailment"?50:(move.meta.ailment_chance||0)*.25;
     return {move,score};
   }).sort((a,b)=>b.score-a.score)[0].move;
 }
-function struggleMove(){return {name:"struggle",power:50,accuracy:100,pp:1,type:{name:"normal"},damage_class:{name:"physical"},meta:{ailment:{name:"none"}}}}
+function struggleMove(){return {name:"struggle",power:50,accuracy:100,pp:1,type:"NORMAL",damageClass:"physical",meta:{ailment:{name:"none"}}}}
 async function performAction(attackerIndex,move){
   const battle=state.battle,serial=battle.serial,defenderIndex=1-attackerIndex,attacker=battle.fighters[attackerIndex],defender=battle.fighters[defenderIndex];
   if(!move)return;
@@ -337,11 +361,11 @@ async function performAction(attackerIndex,move){
       },true);
       if(serial!==state.battle.serial)return;
     }
-  }else if(move.damage_class.name==="status"||!move.power){
+  }else if(move.damageClass==="status"||!move.power){
     const accurate=Math.random()<(move.accuracy??100)/100;
     await playBattleAnimation(attackerIndex,defenderIndex,move,accurate?()=>{
       if(serial!==state.battle.serial)return;
-      const statusChance=move.damage_class.name==="status"&&move.meta?.category?.name==="ailment"?100:ailmentChance;
+      const statusChance=move.damageClass==="status"&&move.meta?.category?.name==="ailment"?100:ailmentChance;
       const applied=status&&status!=="none"&&Math.random()*100<statusChance?applyStatus(defenderIndex,status):false;
       addLog(applied?`<strong>${title(attacker.name)}</strong> usou ${title(move.name)}. ${title(defender.name)} sofreu ${statusLabels[status]}.`:`<strong>${title(attacker.name)}</strong> usou ${title(move.name)}, sem causar dano direto.`);
     }:null);
@@ -402,16 +426,13 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
   }
   fighter.classList.add("acting");
   try{
-    if(selfTarget){
-      await wait(260);
-      if(serial===state.battle.serial)collision?.();
-      return;
-    }
     await animator.playAttack({
-      attackerEl:$("#stage"+suffixFor(attackerIndex)),
-      targetEl:$("#stage"+suffixFor(targetIndex)),
-      moveType:typeNames[move.type.name]||move.type.name,
-      moveCategory:move.damage_class.name,
+      attackerEl:battleRigs[attackerIndex].root,
+      targetEl:battleRigs[targetIndex].root,
+      moveName:move.name,
+      moveType:move.type,
+      damageClass:move.damageClass,
+      power:move.power,
       onImpact:collision
     });
   }finally{
@@ -421,8 +442,8 @@ async function playBattleAnimation(attackerIndex,defenderIndex,move,onHitCallbac
 async function finishBattle(winnerIndex,loserIndex){
   const battle=state.battle,serial=battle.serial; battle.over=true;battle.busy=false;
   const winner=battle.fighters[winnerIndex],loser=battle.fighters[loserIndex];
-  const winnerStage=$("#stage"+suffixFor(winnerIndex)),loserStage=$("#stage"+suffixFor(loserIndex));
-  await animator.playKO(loserStage);
+  const winnerStage=$("#stage"+suffixFor(winnerIndex));
+  await animator.playKO(battleRigs[loserIndex].root);
   if(serial!==battle.serial)return;
   winnerStage.classList.add("victorious");
   addLog(`<strong>${title(loser.name)}</strong> desmaiou! <strong>${title(winner.name)}</strong> venceu a batalha!`);
